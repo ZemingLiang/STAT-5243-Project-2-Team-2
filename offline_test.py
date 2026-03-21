@@ -14,13 +14,18 @@ import pandas as pd
 
 import EDA
 
-# Optional dataset store integration.
-# This script will still work if dataset_store is absent.
+# Optional integrations — the script still runs if any module is absent.
 try:
     import dataset_store
     HAS_DATASET_STORE = True
 except Exception:
     HAS_DATASET_STORE = False
+
+try:
+    import api as api_module
+    HAS_API = True
+except Exception:
+    HAS_API = False
 
 
 TEST_CSV_PATH = Path("test_data/sleep_mobile_stress_dataset_15000.csv")
@@ -595,24 +600,118 @@ def run_dataframe_view_tests(df: pd.DataFrame) -> None:
     present_table_payload("column_types", payload)
 
 
-def run_filter_tests(df: pd.DataFrame, cols: dict[str, Any]) -> pd.DataFrame:
-    """Test dataframe filtering and return a filtered frame for later use."""
-    print_section("Filtering tests")
+def run_filter_tests(
+    df: pd.DataFrame,
+    cols: dict[str, Any],
+    source_dataset_id: str | None = None,
+) -> pd.DataFrame:
+    """
+    Test the three-layer filter architecture:
+
+    1. ``EDA.apply_filter``                — pure function, raises ValueError
+    2. ``dataset_store.register_dataframe``— persistence / provenance
+    3. ``api.filter_and_save_dataset``     — full orchestration, JSON response
+
+    Returns the filtered DataFrame for use in downstream tests.
+    """
+    print_section("Filtering tests  (apply_filter / register_dataframe / filter_and_save_dataset)")
 
     num_col = cols["numeric_1"]
     threshold = float(pd.to_numeric(df[num_col], errors="coerce").dropna().median())
     expr = f"`{num_col}` > {threshold}"
 
-    payload = EDA.filter_dataframe(df, expr)
-    present_table_payload("filter_dataframe", payload)
+    # ── 1. EDA.apply_filter — pure function ──────────────────────────────────
+    filtered_df = EDA.apply_filter(df, expr)
+    assert isinstance(filtered_df, pd.DataFrame), "apply_filter must return a DataFrame"
+    assert len(filtered_df) > 0, "Filtered DataFrame should not be empty"
+    assert len(filtered_df) < len(df), "Filter should reduce the row count"
+    print(f"[INFO] apply_filter: {len(df)} → {len(filtered_df)} rows  (expr: {expr!r})")
+    print("[PASS] EDA.apply_filter — basic success")
 
-    if is_success(payload):
-        filtered_rows = get_data(payload)["rows"]
-        filtered_df = pd.DataFrame(filtered_rows)
-        print(f"[INFO] Filtered shape reconstructed from JSON = {filtered_df.shape}")
-        return filtered_df
+    # Error: empty expression
+    try:
+        EDA.apply_filter(df, "")
+        print("[FAIL] Expected ValueError for empty expr")
+    except ValueError as exc:
+        print(f"[PASS] EDA.apply_filter raises ValueError on empty expr: {exc}")
 
-    return df
+    # Error: no column matches
+    try:
+        EDA.apply_filter(df, "nonexistent_col_xyz > 0")
+        print("[FAIL] Expected ValueError for unknown column")
+    except ValueError as exc:
+        print(f"[PASS] EDA.apply_filter raises ValueError on unknown column: {exc}")
+
+    # Error: bad query syntax
+    try:
+        EDA.apply_filter(df, f"`{num_col}` >>== 0")
+        print("[FAIL] Expected ValueError for bad syntax")
+    except ValueError as exc:
+        print(f"[PASS] EDA.apply_filter raises ValueError on bad syntax: {exc}")
+
+    # ── 2. dataset_store.register_dataframe ──────────────────────────────────
+    if HAS_DATASET_STORE:
+        meta = dataset_store.register_dataframe(
+            filtered_df,
+            parent_dataset_id=source_dataset_id,
+            kind="filtered",
+            transform={"filter_expr": expr},
+        )
+        assert "dataset_id" in meta, "Metadata must contain dataset_id"
+        assert meta["kind"] == "filtered"
+        assert meta["parent_dataset_id"] == source_dataset_id
+        assert meta["n_rows"] == len(filtered_df)
+        assert meta["transform"]["filter_expr"] == expr
+        save_json("register_dataframe_meta", meta)
+        print("[SAVED] register_dataframe_meta.json")
+        print(f"[PASS] dataset_store.register_dataframe → new id={meta['dataset_id']}")
+
+        # Round-trip: retrieve by the new dataset_id.
+        retrieved = dataset_store.get_dataset_by_id(meta["dataset_id"])
+        assert len(retrieved) == len(filtered_df), "Round-trip row count mismatch"
+        print("[PASS] dataset_store.register_dataframe — round-trip via get_dataset_by_id")
+    else:
+        print("[SKIP] dataset_store not available — skipping register_dataframe test")
+
+    # ── 3. api.filter_and_save_dataset — full orchestration ──────────────────
+    if HAS_API and HAS_DATASET_STORE and source_dataset_id:
+        # Success case.
+        result = api_module.filter_and_save_dataset(source_dataset_id, expr)
+        assert result.get("status") == "success", f"Expected success, got {result}"
+        data = result["data"]
+        assert data["source_dataset_id"] == source_dataset_id
+        assert data["n_rows_before"] == len(df)
+        assert data["n_rows_after"] == len(filtered_df)
+        assert "new_dataset_id" in data
+        save_json("filter_and_save_dataset", result)
+        print("[SAVED] filter_and_save_dataset.json")
+        print(f"[PASS] api.filter_and_save_dataset → new_dataset_id={data['new_dataset_id']}")
+
+        # Error: unknown dataset_id.
+        err = api_module.filter_and_save_dataset("nonexistent-id-xyz", expr)
+        assert err.get("status") == "error", f"Expected error for bad id, got {err}"
+        print("[PASS] api.filter_and_save_dataset returns error for unknown dataset_id")
+
+        # Error: empty filter.
+        err = api_module.filter_and_save_dataset(source_dataset_id, "")
+        assert err.get("status") == "error", f"Expected error for empty filter, got {err}"
+        print("[PASS] api.filter_and_save_dataset returns error for empty filter")
+
+        # Error: no valid column reference.
+        err = api_module.filter_and_save_dataset(source_dataset_id, "nonexistent_col_xyz > 0")
+        assert err.get("status") == "error", f"Expected error for bad column, got {err}"
+        print("[PASS] api.filter_and_save_dataset returns error for unknown column ref")
+    else:
+        missing = []
+        if not HAS_API:
+            missing.append("api")
+        if not HAS_DATASET_STORE:
+            missing.append("dataset_store")
+        if not source_dataset_id:
+            missing.append("source_dataset_id")
+        print(f"[SKIP] filter_and_save_dataset test skipped (missing: {', '.join(missing)})")
+
+    return filtered_df
 
 
 def run_plot_tests(df: pd.DataFrame, cols: dict[str, Any]) -> None:
@@ -978,7 +1077,16 @@ def main() -> None:
     print("[SAVED] picked_test_columns.json")
 
     run_dataframe_view_tests(df)
-    filtered_df = run_filter_tests(df, cols)
+
+    # Resolve the source dataset_id for API-layer tests.
+    source_dataset_id: str | None = None
+    if HAS_DATASET_STORE:
+        datasets = dataset_store.list_datasets()
+        if datasets:
+            # The first entry is the originally uploaded CSV.
+            source_dataset_id = datasets[0]["dataset_id"]
+
+    filtered_df = run_filter_tests(df, cols, source_dataset_id=source_dataset_id)
 
     # Use filtered_df only if non-empty, otherwise original.
     working_df = filtered_df if not filtered_df.empty else df

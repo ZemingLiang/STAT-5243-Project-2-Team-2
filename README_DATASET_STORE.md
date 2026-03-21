@@ -1,8 +1,8 @@
 # Dataset Store — Reference
 
-`dataset_store.py` manages the lifecycle of user-uploaded datasets: receiving a file, persisting it to disk, caching the parsed DataFrame in RAM, and making it retrievable by a stable `dataset_id`.
+`dataset_store.py` manages the lifecycle of datasets: receiving an uploaded file (or a programmatically-derived DataFrame), persisting it to disk, caching in RAM, and making it retrievable by a stable `dataset_id`.
 
-EDA functions in `EDA.py` receive a plain `pd.DataFrame` and have no knowledge of this layer. The API layer is responsible for translating a `dataset_id` from an HTTP request into a DataFrame by calling `get_dataset_by_id(dataset_id)`.
+EDA functions in `EDA.py` receive a plain `pd.DataFrame` and have no knowledge of this layer. The API layer translates a `dataset_id` from an HTTP request into a DataFrame via `get_dataset_by_id(dataset_id)`, and persists derived DataFrames via `register_dataframe(...)`.
 
 ---
 
@@ -15,9 +15,18 @@ load_uploaded_csv(file_obj, filename)
     ↓  validates, assigns dataset_id (UUID4)
     ↓  optionally writes raw bytes to ./uploaded_datasets/<id>__<filename>
     ↓  parses into pd.DataFrame
-    ↓  stores DatasetMetadata in _DATASET_INDEX
+    ↓  stores DatasetMetadata in _DATASET_INDEX  (kind="uploaded")
     ↓  optionally caches DataFrame in _DATASET_CACHE
     → returns metadata dict (incl. dataset_id)
+
+API layer creates a derived dataset (e.g. filtered view)
+    ↓
+register_dataframe(filtered_df, parent_dataset_id=..., kind="filtered", transform={...})
+    ↓  assigns new dataset_id (UUID4)
+    ↓  writes CSV to ./uploaded_datasets/<new_id>__derived.csv
+    ↓  stores DatasetMetadata in _DATASET_INDEX  (kind="filtered", parent_dataset_id=...)
+    ↓  caches DataFrame in _DATASET_CACHE
+    → returns metadata dict (incl. new dataset_id + provenance)
 
 Later requests: get_dataset_by_id(dataset_id)
     ↓  checks _DATASET_CACHE (fast path)
@@ -59,11 +68,28 @@ Retrieve the DataFrame for a known dataset.
 
 ---
 
+### `register_dataframe(df, parent_dataset_id=None, kind="derived", transform=None) → dict`
+
+Register an in-memory DataFrame as a new dataset entry — the complement to `load_uploaded_csv` for programmatically-created DataFrames.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `df` | — | DataFrame to register. Must not be empty. |
+| `parent_dataset_id` | `None` | `dataset_id` of the source this was derived from |
+| `kind` | `"derived"` | Label for the derivation type, e.g. `"filtered"`, `"joined"` |
+| `transform` | `None` | JSON-serialisable dict describing the transformation, e.g. `{"filter_expr": "age > 30"}` |
+
+Assigns a new `dataset_id`, writes the DataFrame to disk as a CSV, stores provenance metadata, caches in RAM, and returns the metadata dict. Raises `DatasetValidationError` if `df` is not a DataFrame or is empty.
+
+Provenance fields in returned metadata: `parent_dataset_id`, `kind`, `transform`.
+
+---
+
 ### `get_dataset_metadata(dataset_id) → dict`
 
 Return the stored `DatasetMetadata` as a JSON-friendly dict.
 
-Fields: `dataset_id`, `filename`, `stored_path`, `file_type`, `created_at` (ISO 8601 UTC), `n_rows`, `n_cols`, `columns`, `dtypes`, `size_bytes`.
+Fields: `dataset_id`, `filename`, `stored_path`, `file_type`, `created_at` (ISO 8601 UTC), `n_rows`, `n_cols`, `columns`, `dtypes`, `size_bytes`, `parent_dataset_id`, `kind`, `transform`.
 
 ---
 
@@ -142,6 +168,28 @@ def get_head(dataset_id: str, n: int = 5) -> dict:
     except DatasetNotFoundError:
         return {"status": "error", "message": f"Dataset '{dataset_id}' not found."}
     return EDA.show_head(df, n=n)
+
+
+# Filter-and-save endpoint — use api.py, which orchestrates EDA + dataset_store
+import api
+
+def filter_dataset(dataset_id: str, filter_expr: str) -> dict:
+    # Returns {"status": "success", "data": {"new_dataset_id": ..., ...}}
+    # or      {"status": "error",   "message": "..."}
+    return api.filter_and_save_dataset(dataset_id, filter_expr)
+
+
+# Manually register a derived DataFrame (lower-level, e.g. after a join)
+from dataset_store import register_dataframe
+
+def save_joined(df_joined, left_id: str, right_id: str) -> dict:
+    meta = register_dataframe(
+        df_joined,
+        parent_dataset_id=left_id,
+        kind="joined",
+        transform={"left_dataset_id": left_id, "right_dataset_id": right_id},
+    )
+    return {"status": "success", "new_dataset_id": meta["dataset_id"]}
 ```
 
 ---

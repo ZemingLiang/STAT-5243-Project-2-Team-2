@@ -73,11 +73,19 @@ python offline_test.py
 
 `EDA.py` handles:
 - DataFrame viewing (`show_head`, `describe_dataframe`, `column_types`)
-- Filtering (`filter_dataframe`)
+- Pure filtering (`apply_filter`) — returns a DataFrame, raises `ValueError`, no JSON
 - 1D and 2D plots
 - Regression analysis
 
 **EDA functions take a `pd.DataFrame` directly and have no knowledge of `dataset_id` or the API layer.**
+
+The filtering workflow is split across three layers:
+
+| Layer | Responsibility |
+|---|---|
+| `EDA.apply_filter` | Pure pandas query; raises `ValueError` on bad input |
+| `dataset_store.register_dataframe` | Persists result; returns provenance metadata |
+| `api.filter_and_save_dataset` | Orchestrates the two steps; returns JSON |
 
 ### JSON-first return format
 
@@ -116,19 +124,23 @@ Response `data` fields: `view_type`, `columns`, `rows`
 
 ### Filtering
 
-#### `filter_dataframe(df, filter_expr)`
+#### `apply_filter(df, filter_expr) -> pd.DataFrame`
 
-Filters the DataFrame using a pandas `query()`-compatible expression string.
+Pure filtering function.  Takes a DataFrame and a pandas `query()`-compatible
+expression, returns the filtered DataFrame.  **Does not return JSON.**
 
 **Examples:**
-```
-age > 30
-city == "New York"
-salary >= 50000 and department == "Physics"
-`column with spaces` > 10
+```python
+filtered = EDA.apply_filter(df, "age > 30")
+filtered = EDA.apply_filter(df, 'city == "New York"')
+filtered = EDA.apply_filter(df, "`column with spaces` > 10")
 ```
 
-Response `data` fields: `filter_expr`, `n_rows_before`, `n_rows_after`, `columns`, `rows`
+**Raises `ValueError`** if the expression is empty, references no known column,
+or `DataFrame.query()` raises any exception.
+
+Use `api.filter_and_save_dataset` when you need to persist the result and
+get a JSON response (the typical API-layer usage).
 
 ---
 
@@ -301,7 +313,7 @@ When adding a new EDA function:
 - Dataset store is **in-process** and **single-node**: state is not shared across workers or restarts.
 - EDA functions are **not optimized for very large datasets** (>1M rows); `max_points` sampling is used for point-based outputs.
 - `contour` plots require `scipy`; LOWESS and robust regression require `statsmodels`. Both dependencies fail gracefully with an error response if absent.
-- `filter_dataframe` uses `df.query()` with `engine="python"` and does a lightweight column-token check; it does not sanitize arbitrary expressions for production security.
+- `apply_filter` uses `df.query()` with `engine="python"` and does a lightweight column-token check; it does not sanitize arbitrary expressions for production security.
 
 ---
 

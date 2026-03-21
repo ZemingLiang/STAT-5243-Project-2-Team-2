@@ -56,6 +56,10 @@ class DatasetMetadata:
     columns: list[str]
     dtypes: dict[str, str]
     size_bytes: int | None = None
+    # Provenance fields (set for derived / filtered datasets).
+    parent_dataset_id: str | None = None
+    kind: str = "uploaded"           # e.g. "uploaded", "filtered", "derived"
+    transform: dict | None = None    # e.g. {"filter_expr": "age > 30"}
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -261,6 +265,84 @@ def get_dataset_summary(dataset_id: str) -> dict[str, Any]:
     metadata = get_dataset_metadata(dataset_id)
     metadata["is_cached"] = is_dataset_cached(dataset_id)
     return metadata
+
+
+def register_dataframe(
+    df: pd.DataFrame,
+    parent_dataset_id: str | None = None,
+    kind: str = "derived",
+    transform: dict | None = None,
+) -> dict[str, Any]:
+    """
+    Register an in-memory DataFrame as a new dataset entry.
+
+    Assigns a fresh ``dataset_id``, persists the DataFrame to disk as a CSV,
+    stores provenance metadata (parent id, kind, transform), and caches the
+    DataFrame in RAM for immediate re-use.
+
+    This function is the counterpart to ``load_uploaded_csv`` for
+    programmatically-created DataFrames (e.g. filtered subsets, joined tables).
+
+    Parameters
+    ----------
+    df:
+        The DataFrame to register.  Must not be empty.
+    parent_dataset_id:
+        ``dataset_id`` of the source dataset this was derived from, or
+        ``None`` if there is no single parent.
+    kind:
+        Human-readable label for the derivation type.
+        Typical values: ``"filtered"``, ``"derived"``, ``"joined"``.
+    transform:
+        JSON-serialisable dict describing the transformation applied, e.g.
+        ``{"filter_expr": "age > 30"}``.  Stored verbatim in metadata.
+
+    Returns
+    -------
+    dict
+        JSON-friendly metadata dict for the newly registered dataset,
+        including ``dataset_id``, ``parent_dataset_id``, ``kind``,
+        ``transform``, ``n_rows``, ``n_cols``, and ``columns``.
+
+    Raises
+    ------
+    DatasetValidationError
+        If *df* is not a pandas DataFrame or is empty.
+    """
+    if not isinstance(df, pd.DataFrame):
+        raise DatasetValidationError("register_dataframe: df must be a pandas DataFrame.")
+    if df.empty:
+        raise DatasetValidationError("register_dataframe: cannot register an empty DataFrame.")
+
+    dataset_id = _generate_dataset_id()
+    stored_filename = f"{dataset_id}__derived.csv"
+    stored_path = UPLOAD_DIR / stored_filename
+
+    # Persist to disk.
+    stored_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(stored_path, index=False)
+
+    metadata = DatasetMetadata(
+        dataset_id=dataset_id,
+        filename=stored_filename,
+        stored_path=str(stored_path),
+        file_type="csv",
+        created_at=_utc_now_iso(),
+        n_rows=int(df.shape[0]),
+        n_cols=int(df.shape[1]),
+        columns=[str(c) for c in df.columns.tolist()],
+        dtypes={str(col): str(dtype) for col, dtype in df.dtypes.items()},
+        size_bytes=None,
+        parent_dataset_id=parent_dataset_id,
+        kind=kind,
+        transform=transform,
+    )
+
+    with _LOCK:
+        _DATASET_INDEX[dataset_id] = metadata
+        _DATASET_CACHE[dataset_id] = df
+
+    return metadata.to_dict()
 
 
 # =========================

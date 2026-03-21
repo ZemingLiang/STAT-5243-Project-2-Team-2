@@ -137,26 +137,42 @@ GET /column_types?dataset_id=...
 
 ## 4. Filtering
 
-**Backend call:**
+Filtering uses a clean three-layer architecture:
+
+| Layer | Function | Responsibility |
+|---|---|---|
+| EDA | `apply_filter(df, expr)` | Pure pandas query, raises ValueError |
+| Dataset store | `register_dataframe(df, ...)` | Persist result, assign new dataset_id |
+| **API (call this)** | `filter_and_save_dataset(dataset_id, expr)` | Orchestrate + return JSON |
+
+**Backend call (frontend invokes this endpoint):**
 ```
 POST /filter
 {
-  "dataset_id": "...",
+  "dataset_id": "abc123",
   "filter_expr": "age > 30"
 }
 ```
 
-**Response:**
+**Success response:**
 ```json
 {
+  "status": "success",
   "data": {
-    "filter_expr": "age > 30",
+    "source_dataset_id": "abc123",
+    "new_dataset_id": "def456",
     "n_rows_before": 15000,
-    "n_rows_after": 8143,
-    "columns": [...],
-    "rows": [...]
+    "n_rows_after": 8143
   }
 }
+```
+
+The `new_dataset_id` is the id of the newly saved filtered dataset.  All
+subsequent EDA calls for the filtered view should use `new_dataset_id`.
+
+**Error response:**
+```json
+{ "status": "error", "message": "No valid column names found in filter expression: 'xyz > 0'." }
 ```
 
 ### Building the filter expression
@@ -171,7 +187,10 @@ The backend uses `pandas.DataFrame.query()` syntax. The frontend has two options
 - For columns with spaces in their names, wrap in backticks.
 - For string values, wrap in double quotes inside the expression.
 
-**Frontend:** render filtered table, show row counts before/after.
+**Frontend responsibilities:**
+- Display `n_rows_before` and `n_rows_after` to the user.
+- Store `new_dataset_id` as the active dataset for subsequent EDA operations.
+- On error, display `message` to the user.
 
 ---
 
@@ -577,7 +596,7 @@ Every plot response includes:
 | Show head | `show_head` | Table render |
 | Describe | `describe_dataframe` | Table render |
 | Column types | `column_types` | Use for UI logic |
-| Filter | `filter_dataframe` | Build query string in UI |
+| Filter | `api.filter_and_save_dataset` | Build query string in UI; store `new_dataset_id` |
 | 1D histogram | `plot_numeric_1d` | |
 | 1D bar | `plot_categorical_1d` | |
 | 2D auto | `plot_two_columns` | Let backend dispatch |

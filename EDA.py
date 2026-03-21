@@ -26,10 +26,13 @@ except Exception:  # pragma: no cover
 """
 Frontend integration note
 -------------------------
-1. For "column click + filter input" behavior, the frontend should construct a valid
-   pandas-query-style filter string and call `filter_dataframe(...)`.
+1. For "column click + filter input" behavior, the frontend constructs a
+   pandas-query-style filter string and calls the API layer
+   ``filter_and_save_dataset(dataset_id, filter_expr)`` (api.py).
+   That function calls ``EDA.apply_filter`` for the pure filtering step,
+   then ``dataset_store.register_dataframe`` to persist the result.
 
-   Example:
+   Example filter expressions:
        column = "age"
        operator = ">"
        value = 30
@@ -324,70 +327,61 @@ def column_types(df: pd.DataFrame) -> dict[str, Any]:
 # Filtering
 # ============================================================================
 
-def filter_dataframe(
-    df: pd.DataFrame,
-    filter_expr: str,
-) -> dict[str, Any]:
+def apply_filter(df: pd.DataFrame, filter_expr: str) -> pd.DataFrame:
     """
-    Filter a DataFrame using a pandas-query-style expression.
+    Filter a DataFrame using a pandas-query-compatible expression.
 
-    This function is intended to support both:
-    1. free-form filter strings typed by the user, and
-    2. frontend-built expressions from column-click interactions.
-
-    Examples
-    --------
-    - "age > 30"
-    - 'city == "New York"'
-    - "salary >= 50000 and department == 'Physics'"
+    This is a **pure function**: it does not produce JSON, does not interact
+    with any dataset_id or storage layer, and raises ``ValueError`` on any
+    error so the caller can handle it in whatever way is appropriate for
+    the context (API layer, test harness, etc.).
 
     Parameters
     ----------
     df:
         Input pandas DataFrame.
     filter_expr:
-        Query expression to be evaluated by `DataFrame.query()`.
+        pandas ``DataFrame.query()``-compatible expression, e.g.::
+
+            "age > 30"
+            'city == "New York"'
+            "salary >= 50000 and department == 'Physics'"
+            "`column with spaces` > 10"
 
     Returns
     -------
-    dict
-        JSON-friendly response containing the filtered DataFrame as table rows.
+    pd.DataFrame
+        The filtered DataFrame (a subset of rows from *df*).
+
+    Raises
+    ------
+    ValueError
+        If *filter_expr* is empty, references no known column, or
+        ``DataFrame.query()`` raises any exception.
     """
     if not filter_expr or not filter_expr.strip():
-        return _error("Filter expression is empty.")
+        raise ValueError("filter_expr must be a non-empty string.")
 
-    # Lightweight token check against existing columns:
-    # This is intentionally simple and defensive, not a full parser.
-    possible_columns = [
+    # Lightweight column-presence check: reject expressions that mention
+    # no column of df, which almost always indicates a typo or wrong dataset.
+    matched_cols = [
         col for col in df.columns
-        if any(
-            token in filter_expr
-            for token in [col, f"`{col}`"]
-        )
+        if col in filter_expr or f"`{col}`" in filter_expr
     ]
-    if not possible_columns:
-        return _warning(
-            "No valid column names were detected in the filter string.",
-            data={"filter_expr": filter_expr},
+    if not matched_cols:
+        raise ValueError(
+            f"No valid column names found in filter expression: {filter_expr!r}. "
+            f"Available columns: {list(df.columns)}"
         )
 
     try:
         filtered = df.query(filter_expr, engine="python")
     except Exception as exc:
-        return _error(
-            "Failed to apply filter expression.",
-            details={"filter_expr": filter_expr, "exception": str(exc)},
-        )
+        raise ValueError(
+            f"Failed to apply filter expression {filter_expr!r}: {exc}"
+        ) from exc
 
-    return _success(
-        {
-            "filter_expr": filter_expr,
-            "n_rows_before": int(len(df)),
-            "n_rows_after": int(len(filtered)),
-            "columns": [str(c) for c in filtered.columns],
-            "rows": _records_from_df(filtered),
-        }
-    )
+    return filtered
 
 
 # ============================================================================
@@ -1296,7 +1290,7 @@ def _multiline_groups_filters(
             warnings.append(f"['{label}'] Filter expression is empty — skipped.")
             continue
 
-        # Lightweight column-presence check (mirrors filter_dataframe).
+        # Lightweight column-presence check (same logic as apply_filter).
         matched_cols = [col for col in df.columns if col in fstr or f"`{col}`" in fstr]
         if not matched_cols:
             warnings.append(
