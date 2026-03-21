@@ -302,6 +302,25 @@ Render a central scatter plot with a histogram above (x-marginal) and one to the
 
 ---
 
+#### kind = `"line"` → sorted line plot
+
+```json
+{
+  "data": {
+    "plot_type": "line",
+    "x": "age", "y": "stress_level", "hue": "gender",
+    "x_values": [18, 19, 20, ...],
+    "y_values": [5.1, 6.3, 4.8, ...],
+    "hue_values": ["Female", "Male", "Female", ...],
+    "n_points": 2000
+  }
+}
+```
+
+Data is pre-sorted by `x`. Connect consecutive points to draw a single continuous line. `hue_values` is a parallel array present only when `hue` was specified; use it for per-point coloring or tooltip annotation. It does **not** split the data into multiple lines — use `plot_multiline` for that.
+
+---
+
 ### 6.2 Numeric × Categorical
 
 **Request parameters:** `x` (numeric), `y` (categorical), `hue` (optional), `kind`
@@ -381,7 +400,127 @@ The backend inspects column types and routes to the right specialized function. 
 
 ---
 
-## 8. Regression
+## 8. Multi-line plots (`plot_multiline`)
+
+Use this endpoint to overlay multiple lines on one canvas for group comparison.
+
+### 8.1 Request
+
+```
+POST /multiline
+{
+  "dataset_id": "...",
+  "column": "sleep_duration_hours",
+  "x_column": "daily_screen_time_hours",   // omit for 1D mode
+  "group_by": "gender",                    // OR use filter_strings — not both
+  "normalize": false,
+  "bins": 30,
+  "sort_x": true,
+  "max_points_per_line": 2000
+}
+```
+
+**Grouping options — exactly one of:**
+
+```jsonc
+// Option A — split by categorical column
+{ "group_by": "gender" }
+
+// Option B — split by filter expressions
+{
+  "filter_strings": ["stress_level < 4", "stress_level > 8", "age > 999"],
+  "filter_labels":  ["Low stress",       "High stress",      "Empty test"]
+}
+```
+
+### 8.2 Response — 1D mode (`x_column` absent)
+
+```json
+{
+  "status": "success",
+  "data": {
+    "plot_type": "multiline",
+    "mode": "1d",
+    "column": "sleep_duration_hours",
+    "normalize": false,
+    "bins": [4.0, 4.35, 4.7, "..."],
+    "group_source": "categorical",
+    "group_column": "gender",
+    "n_lines": 3,
+    "lines": [
+      { "label": "Female",     "x": [4.17, 4.52, "..."], "y": [312, 445, "..."], "n_points": 6891 },
+      { "label": "Male",       "x": [4.17, 4.52, "..."], "y": [290, 410, "..."], "n_points": 7234 },
+      { "label": "Non-binary", "x": ["..."], "y": ["..."], "n_points": 875 }
+    ],
+    "logx_available": true,
+    "logy_available": false,
+    "warnings": []
+  }
+}
+```
+
+`x` in each line is **bin midpoints** (shared across all lines). `y` is counts, or fractions when `normalize=true`. All lines share the same `bins` edges — their x-axes are aligned for direct comparison.
+
+### 8.3 Response — 2D mode (`x_column` provided)
+
+```json
+{
+  "status": "success",
+  "data": {
+    "plot_type": "multiline",
+    "mode": "2d",
+    "x_column": "daily_screen_time_hours",
+    "y_column": "sleep_duration_hours",
+    "group_source": "filter",
+    "group_column": null,
+    "n_lines": 2,
+    "lines": [
+      { "label": "Low stress",  "x": [1.0, 1.2, "..."], "y": [7.5, 7.3, "..."], "n_points": 2000 },
+      { "label": "High stress", "x": [1.0, 1.1, "..."], "y": [5.8, 6.0, "..."], "n_points": 2000 }
+    ],
+    "logx_available": true,
+    "logy_available": true,
+    "warnings": []
+  }
+}
+```
+
+Each line's `x` and `y` are pre-sorted by `x`. Connect them as a line chart.
+
+### 8.4 Response — partial filter failure (`status="warning"`)
+
+When some filters are skipped (empty selection, syntax error, or missing column), the response still delivers the valid lines with `status="warning"`:
+
+```json
+{
+  "status": "warning",
+  "message": "2 group(s) skipped; see data['warnings'] for details.",
+  "data": {
+    "plot_type": "multiline",
+    "mode": "1d",
+    "n_lines": 2,
+    "lines": [ "..." ],
+    "warnings": [
+      "['Empty test'] Filter 'age > 999' produced an empty selection — skipped.",
+      "['Invalid'] No valid column names found in filter 'xyz > 0' — skipped."
+    ]
+  }
+}
+```
+
+### 8.5 Frontend responsibilities for multiline
+
+- Iterate over `data.lines` — one line per entry.
+- Use `line.label` as the legend entry.
+- **1D mode:** draw a line connecting `(x[i], y[i])` for each group. Label y-axis as `"fraction"` if `normalize=true`, otherwise `"count"`.
+- **2D mode:** draw a line connecting `(x[i], y[i])` per group. Points are pre-sorted by x.
+- If `status == "warning"`: render the available lines AND display a warning banner; optionally show `data.warnings` in a tooltip or expandable sidebar.
+- If `status == "error"`: display the error message; do not render.
+- Respect `logx_available` / `logy_available` for scale toggles.
+
+---
+
+## 9. Regression
 
 **Request parameters:** `x`, `y`, `order` (int), `logx` (bool), `robust` (bool), `lowess` (bool)
 
@@ -415,7 +554,7 @@ The backend inspects column types and routes to the right specialized function. 
 
 ---
 
-## 9. Log scale flags
+## 10. Log scale flags
 
 Every plot response includes:
 
@@ -430,7 +569,7 @@ Every plot response includes:
 
 ---
 
-## 10. UI action → backend function mapping
+## 11. UI action → backend function mapping
 
 | UI action | Backend function | Notes |
 |---|---|---|
@@ -442,14 +581,15 @@ Every plot response includes:
 | 1D histogram | `plot_numeric_1d` | |
 | 1D bar | `plot_categorical_1d` | |
 | 2D auto | `plot_two_columns` | Let backend dispatch |
-| 2D num×num | `plot_numeric_numeric` | Explicit kind selection |
+| 2D num×num | `plot_numeric_numeric` | Explicit kind selection (hist/scatter/joint/contour/line) |
 | 2D num×cat | `plot_numeric_categorical` | Explicit kind selection |
 | 2D cat×cat | `plot_categorical_categorical` | |
+| Multi-line | `plot_multiline` | Group by category or filter strings |
 | Regression | `regression_analysis` | |
 
 ---
 
-## 11. Frontend responsibilities checklist
+## 12. Frontend responsibilities checklist
 
 ### On dataset upload
 - [ ] Send CSV file to upload endpoint
@@ -472,7 +612,7 @@ Every plot response includes:
 
 ---
 
-## 12. Important constraints
+## 13. Important constraints
 
 - **The backend does NOT return PNG images.** It returns data only.
 - **The frontend must render everything** (charts, tables, messages).
@@ -481,7 +621,7 @@ Every plot response includes:
 
 ---
 
-## 13. Recommended chart libraries
+## 14. Recommended chart libraries
 
 Any library that can consume arrays of data works. Common options:
 
@@ -495,7 +635,7 @@ Any library that can consume arrays of data works. Common options:
 
 ---
 
-## 14. Debugging checklist
+## 15. Debugging checklist
 
 If something is not rendering correctly:
 

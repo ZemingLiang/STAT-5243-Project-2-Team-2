@@ -563,6 +563,132 @@ def _numeric_numeric_scatter(
     return _success(_json_ready(payload))
 
 
+def _bin_xy(
+    x_arr: np.ndarray,
+    y_arr: np.ndarray,
+    nbins: int,
+    shared_edges: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Bin x into *nbins* equal-width bins and return (midpoints, mean_y).
+
+    If *shared_edges* is provided those edges are used instead of computing
+    new ones from x_arr (enables alignment across groups).  Empty bins are
+    dropped from the output.
+    """
+    if shared_edges is None:
+        shared_edges = np.linspace(float(x_arr.min()), float(x_arr.max()), nbins + 1)
+    midpoints = 0.5 * (shared_edges[:-1] + shared_edges[1:])
+    bin_idx = np.clip(np.digitize(x_arr, shared_edges) - 1, 0, nbins - 1)
+    mean_y = np.array(
+        [y_arr[bin_idx == i].mean() if np.any(bin_idx == i) else np.nan for i in range(nbins)]
+    )
+    mask = ~np.isnan(mean_y)
+    return midpoints[mask], mean_y[mask]
+
+
+def _numeric_numeric_line(
+    df: pd.DataFrame,
+    x: str,
+    y: str,
+    hue: str | None = None,
+    max_points: int = 5000,
+    nbins: int | None = 30,
+) -> dict[str, Any]:
+    """
+    Build a line-plot payload for two numeric columns.
+
+    Single-line mode (``hue=None``)
+        When *nbins* is set (default 30), x is divided into that many
+        equal-width bins and the mean y per bin is returned, producing a
+        smooth trend line.  Set ``nbins=None`` for raw sorted data.
+
+    Multi-line mode (``hue`` provided, must be categorical)
+        Returns a ``plot_type="multiline"`` response — one line per hue
+        group — using the same x-binning as above for each group with
+        shared bin edges.  This response shape is identical to
+        ``plot_multiline`` 2D mode and is rendered the same way.
+    """
+    err = _validate_columns(df, [x, y] + ([hue] if hue else []))
+    if err:
+        return _error(err)
+    if not _is_numeric(df[x]) or not _is_numeric(df[y]):
+        return _error(f"Both '{x}' and '{y}' must be numeric for a line plot.")
+
+    # ── Multi-line branch (hue splits into separate lines) ──────────────────
+    if hue is not None:
+        if not _is_categorical(df[hue]):
+            return _error(
+                f"hue column '{hue}' must be categorical. "
+                "Use plot_multiline with group_by for a numeric grouping variable."
+            )
+        groups, _ = _multiline_groups_categorical(df, hue)
+        line_specs = _multiline_2d_lines(
+            groups, x, y, sort_x=True, max_points_per_line=max_points, nbins=nbins
+        )
+        if not line_specs:
+            return _error("No valid (x, y) pairs remain for any hue group after dropping NaNs.")
+        all_x = pd.to_numeric(df[x], errors="coerce").dropna()
+        all_y = pd.to_numeric(df[y], errors="coerce").dropna()
+        payload = {
+            "plot_family": "multiline",
+            "plot_type": "multiline",
+            "mode": "2d",
+            "x_column": x,
+            "y_column": y,
+            "group_source": "categorical",
+            "group_column": hue,
+            "n_lines": len(line_specs),
+            "lines": _json_ready(line_specs),
+            "logx_available": _series_log_available(all_x),
+            "logy_available": _series_log_available(all_y),
+            "warnings": [],
+        }
+        return _success(_json_ready(payload))
+
+    # ── Single-line branch ───────────────────────────────────────────────────
+    plot_df = df[[x, y]].copy()
+    plot_df[x] = pd.to_numeric(plot_df[x], errors="coerce")
+    plot_df[y] = pd.to_numeric(plot_df[y], errors="coerce")
+    plot_df = plot_df.dropna()
+
+    if plot_df.empty:
+        return _error("No valid numeric pairs remain after dropping NaNs.")
+
+    x_arr = plot_df[x].to_numpy(dtype=float)
+    y_arr = plot_df[y].to_numpy(dtype=float)
+
+    if nbins is not None and nbins > 1:
+        x_out_arr, y_out_arr = _bin_xy(x_arr, y_arr, nbins)
+        x_out = x_out_arr.tolist()
+        y_out = y_out_arr.tolist()
+        n_pts = int(len(x_out))
+        aggregated = True
+    else:
+        plot_df = _sample_df(plot_df, max_points)
+        plot_df = plot_df.sort_values(by=x).reset_index(drop=True)
+        x_out = plot_df[x].tolist()
+        y_out = plot_df[y].tolist()
+        n_pts = len(plot_df)
+        aggregated = False
+
+    payload = {
+        "plot_family": "2d",
+        "plot_type": "line",
+        "x": x,
+        "y": y,
+        "hue": None,
+        "x_values": x_out,
+        "y_values": y_out,
+        "n_points": n_pts,
+        "aggregated": aggregated,
+        "nbins": nbins if aggregated else None,
+        "logx_available": _series_log_available(pd.Series(x_out)),
+        "logy_available": _series_log_available(pd.Series(y_out)),
+    }
+    return _success(_json_ready(payload))
+
+
 def _numeric_numeric_joint(
     df: pd.DataFrame,
     x: str,
@@ -680,9 +806,10 @@ def plot_numeric_numeric(
     bins: int | tuple[int, int] = 40,
     max_points: int = 5000,
     gridsize: int = 60,
+    nbins: int | None = 30,
 ) -> dict[str, Any]:
     """
-    Plot two numeric columns with one of: "hist", "joint", "scatter", "contour".
+    Plot two numeric columns with one of: "hist", "joint", "scatter", "contour", "line".
 
     Parameters
     ----------
@@ -691,15 +818,19 @@ def plot_numeric_numeric(
     x, y:
         Numeric columns.
     hue:
-        Optional hue column for grouped display on the frontend.
+        Optional hue column.  For ``kind="line"`` a categorical hue splits
+        the data into one line per group (returns a multiline response).
     kind:
-        One of "hist", "joint", "scatter", "contour".
+        One of "hist", "joint", "scatter", "contour", "line".
     bins:
-        Bin specification for histogram-based outputs.
+        Bin specification for histogram-based outputs (hist, joint).
     max_points:
-        Maximum number of raw points returned for point-based rendering.
+        Maximum raw points returned for point-based rendering (scatter, contour).
     gridsize:
         Grid resolution for contour / KDE output.
+    nbins:
+        Number of x-axis bins for ``kind="line"``.  Defaults to 30, giving a
+        smooth trend line.  Set ``None`` to return raw sorted data instead.
 
     Returns
     -------
@@ -721,8 +852,10 @@ def plot_numeric_numeric(
         return _numeric_numeric_scatter(df, x, y, hue=hue, max_points=max_points)
     if kind == "contour":
         return _numeric_numeric_contour(df, x, y, hue=hue, gridsize=gridsize, max_points=max_points)
+    if kind == "line":
+        return _numeric_numeric_line(df, x, y, hue=hue, max_points=max_points, nbins=nbins)
 
-    return _error("Invalid kind for numeric-numeric plot.", details={"allowed": ["hist", "joint", "scatter", "contour"]})
+    return _error("Invalid kind for numeric-numeric plot.", details={"allowed": ["hist", "joint", "scatter", "contour", "line"]})
 
 
 # ============================================================================
@@ -1123,3 +1256,371 @@ def regression_analysis(
         "logy_available": _series_log_available(plot_df[y]),
     }
     return _success(_json_ready(payload))
+
+
+# ============================================================================
+# Multi-line plotting helpers
+# ============================================================================
+
+def _multiline_groups_categorical(
+    df: pd.DataFrame,
+    group_by: str,
+) -> tuple[list[tuple[str, pd.DataFrame]], list[str]]:
+    """Split df into one sub-DataFrame per unique value of *group_by*."""
+    groups: list[tuple[str, pd.DataFrame]] = []
+    for label, sub in df.groupby(group_by, dropna=False):
+        label_str = "<<MISSING>>" if pd.isna(label) else str(label)
+        groups.append((label_str, sub.copy()))
+    return groups, []
+
+
+def _multiline_groups_filters(
+    df: pd.DataFrame,
+    filter_strings: list[str],
+    filter_labels: list[str],
+) -> tuple[list[tuple[str, pd.DataFrame]], list[str]]:
+    """
+    Apply each filter string to df and collect (label, sub_df) pairs.
+
+    Returns (valid_groups, warnings).  Warnings are accumulated for:
+    - empty or column-free filter strings
+    - syntax errors from df.query()
+    - filters that select zero rows (valid but empty)
+    Valid groups are returned even if some filters failed.
+    """
+    valid_groups: list[tuple[str, pd.DataFrame]] = []
+    warnings: list[str] = []
+
+    for label, fstr in zip(filter_labels, filter_strings):
+        if not fstr or not fstr.strip():
+            warnings.append(f"['{label}'] Filter expression is empty — skipped.")
+            continue
+
+        # Lightweight column-presence check (mirrors filter_dataframe).
+        matched_cols = [col for col in df.columns if col in fstr or f"`{col}`" in fstr]
+        if not matched_cols:
+            warnings.append(
+                f"['{label}'] No valid column names found in filter '{fstr}' — skipped."
+            )
+            continue
+
+        try:
+            filtered = df.query(fstr, engine="python")
+        except Exception as exc:
+            warnings.append(
+                f"['{label}'] Filter '{fstr}' raised an error: {exc} — skipped."
+            )
+            continue
+
+        if filtered.empty:
+            warnings.append(
+                f"['{label}'] Filter '{fstr}' produced an empty selection — skipped."
+            )
+            continue
+
+        valid_groups.append((label, filtered.copy()))
+
+    return valid_groups, warnings
+
+
+def _multiline_1d_lines(
+    groups: list[tuple[str, pd.DataFrame]],
+    column: str,
+    normalize: bool,
+    nbins: int,
+) -> tuple[list[dict[str, Any]], np.ndarray]:
+    """
+    Compute histogram-line specs for each group using shared bin edges.
+
+    Sharing bin edges across groups ensures the x-axes are aligned for
+    direct visual comparison.  Returns (line_specs, shared_edges).
+    """
+    all_vals = pd.concat(
+        [pd.to_numeric(sub[column], errors="coerce").dropna() for _, sub in groups],
+        ignore_index=True,
+    )
+    _, shared_edges = np.histogram(all_vals.to_numpy(), bins=nbins)
+    midpoints = 0.5 * (shared_edges[:-1] + shared_edges[1:])
+
+    line_specs: list[dict[str, Any]] = []
+    for label, sub_df in groups:
+        vals = pd.to_numeric(sub_df[column], errors="coerce").dropna()
+        counts, _ = np.histogram(vals.to_numpy(), bins=shared_edges)
+        counts = _maybe_normalize_counts(counts.astype(float), normalize)
+        line_specs.append(
+            {
+                "label": label,
+                "x": midpoints.tolist(),
+                "y": counts.tolist(),
+                "n_points": int(len(vals)),
+            }
+        )
+    return line_specs, shared_edges
+
+
+def _multiline_2d_lines(
+    groups: list[tuple[str, pd.DataFrame]],
+    x_column: str,
+    y_column: str,
+    sort_x: bool,
+    max_points_per_line: int | None,
+    nbins: int | None = 30,
+) -> list[dict[str, Any]]:
+    """
+    Compute line specs (x, y) for each group.
+
+    When *nbins* is set (default 30), x values are binned into that many
+    equal-width bins and y is aggregated as the within-bin mean, using
+    **shared edges** computed from all groups combined.  This produces smooth,
+    directly comparable trend lines even when the raw data are noisy.
+
+    When *nbins* is ``None``, each group's raw data are returned (after
+    optional sampling and x-sorting).
+    """
+    line_specs: list[dict[str, Any]] = []
+
+    if nbins is not None and nbins > 1:
+        # Shared bin edges from the combined x range of all groups.
+        all_x = pd.concat(
+            [pd.to_numeric(sub[x_column], errors="coerce").dropna() for _, sub in groups],
+            ignore_index=True,
+        )
+        if all_x.empty:
+            return line_specs
+        shared_edges = np.linspace(float(all_x.min()), float(all_x.max()), nbins + 1)
+
+        for label, sub_df in groups:
+            pair_df = sub_df[[x_column, y_column]].copy()
+            pair_df[x_column] = pd.to_numeric(pair_df[x_column], errors="coerce")
+            pair_df[y_column] = pd.to_numeric(pair_df[y_column], errors="coerce")
+            pair_df = pair_df.dropna()
+            if pair_df.empty:
+                continue
+            x_mid, y_mean = _bin_xy(
+                pair_df[x_column].to_numpy(dtype=float),
+                pair_df[y_column].to_numpy(dtype=float),
+                nbins,
+                shared_edges=shared_edges,
+            )
+            line_specs.append(
+                {
+                    "label": label,
+                    "x": x_mid.tolist(),
+                    "y": y_mean.tolist(),
+                    "n_points": int(len(pair_df)),
+                }
+            )
+    else:
+        for label, sub_df in groups:
+            pair_df = sub_df[[x_column, y_column]].copy()
+            pair_df[x_column] = pd.to_numeric(pair_df[x_column], errors="coerce")
+            pair_df[y_column] = pd.to_numeric(pair_df[y_column], errors="coerce")
+            pair_df = pair_df.dropna()
+            if pair_df.empty:
+                continue
+            pair_df = _sample_df(pair_df, max_points_per_line)
+            if sort_x:
+                pair_df = pair_df.sort_values(by=x_column)
+            line_specs.append(
+                {
+                    "label": label,
+                    "x": pair_df[x_column].tolist(),
+                    "y": pair_df[y_column].tolist(),
+                    "n_points": int(len(pair_df)),
+                }
+            )
+    return line_specs
+
+
+# ============================================================================
+# plot_multiline — public API
+# ============================================================================
+
+def plot_multiline(
+    df: pd.DataFrame,
+    column: str,
+    x_column: str | None = None,
+    *,
+    group_by: str | None = None,
+    filter_strings: list[str] | None = None,
+    filter_labels: list[str] | None = None,
+    normalize: bool = False,
+    nbins: int | None = 30,
+    sort_x: bool = True,
+    max_points_per_line: int | None = None,
+) -> dict[str, Any]:
+    """
+    Plot multiple lines on a shared canvas — one line per group.
+
+    Groups are defined by exactly **one** of:
+
+    - ``group_by``: a categorical column; one line per unique value.
+    - ``filter_strings``: a list of pandas-query expressions; one line per
+      valid, non-empty filter.  Filters referencing absent columns, causing
+      syntax errors, or yielding empty selections are *skipped* — each
+      generates a warning entry in ``data["warnings"]``.  If at least one
+      valid group remains the function returns ``status="warning"``; if
+      all groups fail it returns ``status="error"``.
+
+    Each line represents either:
+
+    - **2D mode** (``x_column`` provided): *column* (y-axis) vs *x_column*
+      (x-axis).  When *nbins* is set (default 30), x is binned into that many
+      equal-width bins (shared across groups) and y is aggregated as the
+      within-bin mean, producing smooth comparable trend lines.
+    - **1D mode** (``x_column`` is ``None``): histogram / count distribution
+      of *column* plotted as a line.  All groups share the same bin edges.
+
+    Parameters
+    ----------
+    df:
+        Input pandas DataFrame.
+    column:
+        2D mode — numeric y-axis column.
+        1D mode — numeric column whose distribution is plotted.
+    x_column:
+        Numeric x-axis column.  ``None`` selects 1D mode.
+    group_by:
+        Categorical column to split *df* into groups.
+    filter_strings:
+        List of pandas-query-compatible filter expressions.
+    filter_labels:
+        Display labels for each filter; auto-generated if absent or shorter
+        than ``filter_strings``.
+    normalize:
+        (1D only) Normalize each group's histogram counts to sum to 1.
+    nbins:
+        Number of bins.  1D: shared histogram bins.  2D: x-axis bins used
+        for mean-aggregation (set ``None`` for raw sorted data).
+    sort_x:
+        (2D only, only when ``nbins`` is ``None``) Sort raw data by x.
+    max_points_per_line:
+        (2D only, only when ``nbins`` is ``None``) Downsample each group.
+
+    Returns
+    -------
+    dict
+        JSON-friendly payload with ``"lines"`` (one spec per group),
+        ``"mode"`` (``"1d"`` or ``"2d"``), and ``"warnings"`` (skipped
+        filter reasons).  ``status`` is ``"warning"`` when some filters
+        were skipped, ``"success"`` otherwise.
+    """
+    # ── Mutual exclusivity ──────────────────────────────────────────────────
+    if group_by is None and filter_strings is None:
+        return _error(
+            "Provide exactly one of 'group_by' or 'filter_strings'.",
+            details={"hint": "group_by='col' for categorical split, or filter_strings=['expr1', …] for filter-based split."},
+        )
+    if group_by is not None and filter_strings is not None:
+        return _error("Provide exactly one of 'group_by' or 'filter_strings', not both.")
+
+    # ── Column existence ─────────────────────────────────────────────────────
+    cols_to_check = [column] + ([x_column] if x_column else []) + ([group_by] if group_by else [])
+    err = _validate_columns(df, [c for c in cols_to_check if c])
+    if err:
+        return _error(err)
+
+    # ── Type checks ──────────────────────────────────────────────────────────
+    if x_column is not None:
+        if not _is_numeric(df[x_column]):
+            return _error(f"x_column '{x_column}' must be numeric for 2D mode.")
+        if not _is_numeric(df[column]):
+            return _error(f"column '{column}' must be numeric for 2D mode.")
+    else:
+        if not _is_numeric(df[column]):
+            return _error(
+                f"column '{column}' must be numeric for 1D histogram mode. "
+                "For categorical data use plot_categorical_1d per group instead."
+            )
+
+    # ── Build groups ─────────────────────────────────────────────────────────
+    accumulated_warnings: list[str] = []
+
+    if group_by is not None:
+        if not _is_categorical(df[group_by]):
+            return _error(
+                f"group_by column '{group_by}' is not categorical.",
+                details={"dtype": str(df[group_by].dtype)},
+            )
+        groups, accumulated_warnings = _multiline_groups_categorical(df, group_by)
+        group_source = "categorical"
+    else:
+        if not isinstance(filter_strings, list) or len(filter_strings) == 0:
+            return _error("filter_strings must be a non-empty list of filter expressions.")
+
+        n = len(filter_strings)
+        if filter_labels is None:
+            resolved_labels = [f"Group {i + 1}" for i in range(n)]
+        else:
+            resolved_labels = list(filter_labels)
+            if len(resolved_labels) < n:
+                resolved_labels += [f"Group {i + 1}" for i in range(len(resolved_labels), n)]
+            else:
+                resolved_labels = resolved_labels[:n]
+
+        groups, accumulated_warnings = _multiline_groups_filters(
+            df, filter_strings, resolved_labels
+        )
+        group_source = "filter"
+
+    if not groups:
+        return _error(
+            "No valid groups could be constructed.",
+            details={"warnings": accumulated_warnings},
+        )
+
+    # ── Compute line specs ───────────────────────────────────────────────────
+    if x_column is None:
+        line_specs, shared_edges = _multiline_1d_lines(groups, column, normalize, nbins if nbins is not None else 30)
+        all_numeric = pd.to_numeric(df[column], errors="coerce").dropna()
+        data: dict[str, Any] = {
+            "plot_family": "multiline",
+            "plot_type": "multiline",
+            "mode": "1d",
+            "column": column,
+            "normalize": bool(normalize),
+            "bins": shared_edges.tolist(),
+            "group_source": group_source,
+            "group_column": group_by,
+            "n_lines": len(line_specs),
+            "lines": _json_ready(line_specs),
+            "logx_available": _series_log_available(all_numeric),
+            "logy_available": False,
+            "warnings": accumulated_warnings,
+        }
+    else:
+        line_specs_2d = _multiline_2d_lines(
+            groups, x_column, column, sort_x, max_points_per_line, nbins=nbins
+        )
+        if not line_specs_2d:
+            return _error(
+                "No valid (x, y) pairs remain for any group after dropping NaNs.",
+                details={"warnings": accumulated_warnings},
+            )
+        all_x = pd.to_numeric(df[x_column], errors="coerce").dropna()
+        all_y = pd.to_numeric(df[column], errors="coerce").dropna()
+        data = {
+            "plot_family": "multiline",
+            "plot_type": "multiline",
+            "mode": "2d",
+            "x_column": x_column,
+            "y_column": column,
+            "group_source": group_source,
+            "group_column": group_by,
+            "n_lines": len(line_specs_2d),
+            "lines": _json_ready(line_specs_2d),
+            "logx_available": _series_log_available(all_x),
+            "logy_available": _series_log_available(all_y),
+            "warnings": accumulated_warnings,
+        }
+
+    if accumulated_warnings:
+        return {
+            "status": "warning",
+            "message": (
+                f"{len(accumulated_warnings)} group(s) skipped; "
+                "see data['warnings'] for details."
+            ),
+            "data": _json_ready(data),
+        }
+    return _success(_json_ready(data))

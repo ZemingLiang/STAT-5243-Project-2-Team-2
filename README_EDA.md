@@ -160,6 +160,7 @@ Response `data` fields: `plot_type="histogram"`, `bins` (edges), `counts`, `norm
 | `"scatter"` | `scatter` | `points` (list of records) |
 | `"joint"` | `joint` | `points` + `x_marginal` + `y_marginal` histograms |
 | `"contour"` | `contour` | `x_grid`, `y_grid`, `z_grid` (KDE density), `points_preview` |
+| `"line"` | `line` | `x_values`, `y_values` sorted arrays; optional `hue_values` |
 
 All responses include `logx_available` and `logy_available`.
 
@@ -207,6 +208,35 @@ Automatically routes to the correct specialized function based on column types:
 | numeric | categorical | `plot_numeric_categorical` (default kind: `"box"`) |
 | categorical | numeric | `plot_numeric_categorical` with x/y swapped |
 | categorical | categorical | `plot_categorical_categorical` |
+
+---
+
+### Multi-line plots
+
+#### `plot_multiline(df, column, x_column=None, *, group_by=None, filter_strings=None, filter_labels=None, normalize=False, bins=30, sort_x=True, max_points_per_line=None)`
+
+Plots one line per group on a shared canvas. Exactly one of `group_by` or `filter_strings` must be provided.
+
+**Group sources:**
+
+| Parameter | Behavior |
+|---|---|
+| `group_by` | Categorical column; one line per unique value. Must be a categorical dtype. |
+| `filter_strings` | List of pandas-query expressions; one line per valid, non-empty filter. Invalid syntax / missing columns / empty selections are skipped and reported as `warnings` in the response. |
+
+**Draw modes:**
+
+| Mode | Trigger | What each line represents |
+|---|---|---|
+| **1D** | `x_column=None` | Histogram counts (or fractions if `normalize=True`) of `column`, using shared bin edges across all groups |
+| **2D** | `x_column` provided | `column` (y-axis) vs `x_column` (x-axis), sorted by x per group |
+
+**Response status rules:**
+- All groups valid → `status="success"`
+- Some filters skipped, at least one valid → `status="warning"` (data still present)
+- All groups fail → `status="error"`
+
+Response `data` fields: `plot_type="multiline"`, `mode`, `lines` (one spec per group with `label`, `x`, `y`, `n_points`), `group_source`, `n_lines`, `warnings`, `logx_available`, `logy_available`
 
 ---
 

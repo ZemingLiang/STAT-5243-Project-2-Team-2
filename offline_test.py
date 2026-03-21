@@ -88,13 +88,35 @@ def try_categorical_columns(df: pd.DataFrame, min_needed: int = 2) -> list[str]:
     return cols
 
 
+def _is_id_like_column(series: pd.Series, name: str) -> bool:
+    """Return True if a column looks like a row identifier rather than a measurement."""
+    lname = name.lower().strip()
+    if (
+        lname in {"id", "idx", "index", "row", "rowid"}
+        or lname.endswith("_id")
+        or lname.startswith("id_")
+    ):
+        return True
+    # Also flag strictly-unique integer columns (every value distinct → sequential ID).
+    if pd.api.types.is_integer_dtype(series) and series.nunique() == len(series):
+        return True
+    return False
+
+
 def pick_test_columns(df: pd.DataFrame) -> dict[str, Any]:
     """
     Pick a reasonable set of columns for offline testing.
 
-    This uses actual dtypes first, then falls back conservatively.
+    ID-like columns (e.g. 'user_id', strictly unique integers) are pushed to
+    the end of the numeric list so more informative measurement columns are
+    selected first.
     """
-    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    all_numeric = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    # Partition: real measurements first, ID-like columns last.
+    numeric_cols = (
+        [c for c in all_numeric if not _is_id_like_column(df[c], c)]
+        + [c for c in all_numeric if _is_id_like_column(df[c], c)]
+    )
     categorical_cols = [
         c for c in df.columns
         if (
@@ -165,9 +187,14 @@ def render_plot_from_payload(name: str, payload: dict[str, Any]) -> Path | None:
     - swarm
     - swarmonbox
     - regression
+    - line
+    - multiline
     """
-    if not is_success(payload):
-        print(f"[WARN] Not rendering {name}: payload status = {payload.get('status')}")
+    status = payload.get("status")
+    if status == "warning":
+        print(f"[WARN] {name} has warning status: {payload.get('message', '')}")
+    elif status != "success":
+        print(f"[WARN] Not rendering {name}: payload status = {status}")
         return None
 
     data = get_data(payload)
@@ -209,6 +236,12 @@ def render_plot_from_payload(name: str, payload: dict[str, Any]) -> Path | None:
 
         elif plot_type == "regression":
             _render_regression(ax, data)
+
+        elif plot_type == "line":
+            _render_line(ax, data)
+
+        elif plot_type == "multiline":
+            _render_multiline(ax, data)
 
         else:
             plt.close(fig)
@@ -426,6 +459,54 @@ def _render_regression(ax: plt.Axes, data: dict[str, Any]) -> None:
     ax.legend()
 
 
+def _render_line(ax: plt.Axes, data: dict[str, Any]) -> None:
+    """Render a single binned/sorted line plot from x_values / y_values."""
+    x_vals = np.asarray(data["x_values"], dtype=float)
+    y_vals = np.asarray(data["y_values"], dtype=float)
+
+    ax.plot(x_vals, y_vals, alpha=0.85, linewidth=1.5)
+    ax.set_xlabel(data.get("x", "x"))
+    ax.set_ylabel(data.get("y", "y"))
+
+    nbins = data.get("nbins")
+    agg_note = f"  (mean per {nbins} x-bins)" if nbins else ""
+    ax.set_title(f"Line: {data.get('y')} vs {data.get('x')}{agg_note}")
+
+
+def _render_multiline(ax: plt.Axes, data: dict[str, Any]) -> None:
+    """Render multiple lines on one axis from a plot_multiline payload."""
+    mode = data.get("mode", "2d")
+    lines = data.get("lines", [])
+    warnings = data.get("warnings", [])
+
+    for line in lines:
+        x = np.asarray(line.get("x", []), dtype=float)
+        y = np.asarray(line.get("y", []), dtype=float)
+        ax.plot(x, y, label=str(line.get("label", "")), alpha=0.85)
+
+    ax.legend(fontsize=8)
+
+    if mode == "1d":
+        column = data.get("column", "value")
+        normalize = data.get("normalize", False)
+        ax.set_xlabel(column)
+        ax.set_ylabel("fraction" if normalize else "count")
+        group_src = data.get("group_column") or data.get("group_source", "")
+        ax.set_title(f"Multi-line distribution: {column}  (groups: {group_src})")
+    else:
+        x_col = data.get("x_column", "x")
+        y_col = data.get("y_column", "y")
+        ax.set_xlabel(x_col)
+        ax.set_ylabel(y_col)
+        group_src = data.get("group_column") or data.get("group_source", "")
+        ax.set_title(f"Multi-line: {y_col} vs {x_col}  (groups: {group_src})")
+
+    if warnings:
+        ax.text(0.02, 0.98, f"({len(warnings)} group(s) skipped)",
+                transform=ax.transAxes, ha="left", va="top",
+                fontsize=8, color="darkorange")
+
+
 # =============================================================================
 # Offline presentation helpers
 # =============================================================================
@@ -455,13 +536,18 @@ def present_generic_payload(name: str, payload: dict[str, Any]) -> None:
 
     status = payload.get("status")
     print(f"status = {status}")
-    if status != "success":
+    if status not in {"success", "warning"}:
         print(pformat(payload, width=120))
         return
+
+    if status == "warning":
+        print(f"  warning: {payload.get('message', '')}")
 
     data = get_data(payload)
     keys = list(data.keys())
     print(f"data keys = {keys}")
+    for w in data.get("warnings", []):
+        print(f"  [SKIPPED] {w}")
 
 
 # =============================================================================
@@ -707,6 +793,169 @@ def run_regression_tests(df: pd.DataFrame, cols: dict[str, Any]) -> None:
         print("[INFO] Skipping logx regression test: x contains non-positive values.")
 
 
+def run_line_tests(df: pd.DataFrame, cols: dict[str, Any]) -> None:
+    """Test kind='line' in plot_numeric_numeric."""
+    print_section("Line plot tests  (plot_numeric_numeric  kind='line')")
+
+    # Use non-ID numeric columns (pick_test_columns already deprioritises IDs).
+    x_col = cols["numeric_1"]   # e.g. age
+    y_col = cols["numeric_2"]   # e.g. daily_screen_time_hours
+    cat_col = cols["hue"]       # e.g. gender
+
+    # ── Single-line (no hue), default nbins=30 ───────────────────────────────
+    payload = EDA.plot_numeric_numeric(
+        df, x=x_col, y=y_col, kind="line",
+    )
+    assert is_success(payload), f"Expected success, got {payload.get('status')}"
+    data = get_data(payload)
+    assert data.get("plot_type") == "line"
+    assert "x_values" in data and "y_values" in data
+    assert len(data["x_values"]) == len(data["y_values"])
+    assert data.get("aggregated") is True, "Expected binned aggregation by default"
+    present_generic_payload("plot_numeric_numeric_line", payload)
+    render_plot_from_payload("plot_numeric_numeric_line", payload)
+    print("[PASS] kind='line' basic (binned, no hue)")
+
+    # ── Single-line with explicit nbins ─────────────────────────────────────
+    payload = EDA.plot_numeric_numeric(
+        df, x=x_col, y=y_col, kind="line", nbins=15,
+    )
+    assert is_success(payload)
+    assert get_data(payload).get("nbins") == 15
+    present_generic_payload("plot_numeric_numeric_line_nbins15", payload)
+    render_plot_from_payload("plot_numeric_numeric_line_nbins15", payload)
+    print("[PASS] kind='line' with explicit nbins=15")
+
+    # ── Multi-line via hue (returns multiline response) ──────────────────────
+    payload = EDA.plot_numeric_numeric(
+        df, x=x_col, y=y_col, hue=cat_col, kind="line",
+    )
+    assert is_success(payload), f"Expected success, got {payload.get('status')}"
+    data = get_data(payload)
+    # When hue is categorical, response is plot_type="multiline" with one line per group.
+    assert data.get("plot_type") == "multiline", (
+        f"Expected multiline response when hue is provided, got {data.get('plot_type')}"
+    )
+    assert data.get("mode") == "2d"
+    assert data.get("group_column") == cat_col
+    assert len(data.get("lines", [])) >= 1
+    present_generic_payload("plot_numeric_numeric_line_hue", payload)
+    render_plot_from_payload("plot_numeric_numeric_line_hue", payload)
+    print("[PASS] kind='line' with hue → multiline response")
+
+
+def run_multiline_tests(df: pd.DataFrame, cols: dict[str, Any]) -> None:
+    """Test plot_multiline — both group modes and both draw modes."""
+    print_section("Multi-line plot tests  (plot_multiline)")
+
+    num_col  = cols["numeric_2"]   # e.g. age
+    num_col2 = cols["numeric_3"]   # e.g. daily_screen_time_hours
+    cat_col  = cols["categorical_1"]  # e.g. gender
+
+    median_val = float(pd.to_numeric(df[num_col], errors="coerce").dropna().median())
+
+    # ── 1D, categorical split ───────────────────────────────────────────────
+    payload = EDA.plot_multiline(
+        df,
+        column=num_col,
+        group_by=cat_col,
+        normalize=True,
+        nbins=20,
+    )
+    assert is_success(payload), f"Expected success, got {payload.get('status')}"
+    data = get_data(payload)
+    assert data["mode"] == "1d"
+    assert len(data["lines"]) >= 1
+    present_generic_payload("multiline_1d_categorical", payload)
+    render_plot_from_payload("multiline_1d_categorical", payload)
+    print("[PASS] multiline 1D categorical split")
+
+    # ── 1D, filter strings with partial failures → warning ──────────────────
+    payload = EDA.plot_multiline(
+        df,
+        column=num_col2,
+        filter_strings=[
+            f"`{num_col}` < {median_val}",          # valid
+            f"`{num_col}` >= {median_val}",         # valid
+            f"`{num_col}` > 9999",                  # valid syntax but empty → warning
+            "nonexistent_col_xyz > 0",              # no column match → warning
+        ],
+        filter_labels=["Below median", "Above median", "Empty filter", "Invalid filter"],
+        normalize=True,
+        nbins=20,
+    )
+    assert payload.get("status") == "warning", (
+        f"Expected warning (partial failures), got {payload.get('status')}"
+    )
+    data = get_data(payload)
+    assert data["mode"] == "1d"
+    assert len(data["lines"]) == 2, f"Expected 2 valid lines, got {len(data['lines'])}"
+    assert len(data["warnings"]) == 2, f"Expected 2 warnings, got {len(data['warnings'])}"
+    present_generic_payload("multiline_1d_filters_partial", payload)
+    render_plot_from_payload("multiline_1d_filters_partial", payload)
+    print("[PASS] multiline 1D filter-strings with partial failures → warning")
+
+    # ── 2D, categorical split ───────────────────────────────────────────────
+    payload = EDA.plot_multiline(
+        df,
+        column=num_col,
+        x_column=num_col2,
+        group_by=cat_col,
+        sort_x=True,
+        max_points_per_line=2000,
+    )
+    assert is_success(payload), f"Expected success, got {payload.get('status')}"
+    data = get_data(payload)
+    assert data["mode"] == "2d"
+    assert len(data["lines"]) >= 1
+    present_generic_payload("multiline_2d_categorical", payload)
+    render_plot_from_payload("multiline_2d_categorical", payload)
+    print("[PASS] multiline 2D categorical split")
+
+    # ── 2D, filter strings (all valid) ──────────────────────────────────────
+    payload = EDA.plot_multiline(
+        df,
+        column=num_col,
+        x_column=num_col2,
+        filter_strings=[
+            f"`{num_col}` < {median_val}",
+            f"`{num_col}` >= {median_val}",
+        ],
+        filter_labels=["Below median", "Above median"],
+        sort_x=True,
+        max_points_per_line=2000,
+    )
+    assert is_success(payload), f"Expected success, got {payload.get('status')}"
+    data = get_data(payload)
+    assert data["mode"] == "2d" and len(data["lines"]) == 2
+    present_generic_payload("multiline_2d_filters", payload)
+    render_plot_from_payload("multiline_2d_filters", payload)
+    print("[PASS] multiline 2D filter-strings all valid")
+
+    # ── Error: both group_by and filter_strings ──────────────────────────────
+    payload = EDA.plot_multiline(
+        df, column=num_col,
+        group_by=cat_col, filter_strings=[f"`{num_col}` > 0"],
+    )
+    assert payload.get("status") == "error"
+    print("[PASS] multiline error on both group_by + filter_strings")
+
+    # ── Error: non-categorical group_by ──────────────────────────────────────
+    payload = EDA.plot_multiline(df, column=num_col2, group_by=num_col)
+    assert payload.get("status") == "error"
+    print("[PASS] multiline error on non-categorical group_by")
+
+    # ── Error: all filters fail ───────────────────────────────────────────────
+    payload = EDA.plot_multiline(
+        df,
+        column=num_col,
+        filter_strings=[f"`{num_col}` > 9999", "nonexistent_col_xyz > 0"],
+        filter_labels=["Empty", "Invalid"],
+    )
+    assert payload.get("status") == "error"
+    print("[PASS] multiline error when all filters fail")
+
+
 def main() -> None:
     """Run the full offline test workflow for dataset_store.py and EDA.py."""
     print_section("Offline EDA test runner")
@@ -738,6 +987,8 @@ def main() -> None:
 
     run_plot_tests(working_df, cols)
     run_regression_tests(working_df, cols)
+    run_line_tests(working_df, cols)
+    run_multiline_tests(working_df, cols)
 
     print_section("Done")
     print(f"Offline test outputs saved under: {OUTPUT_DIR.resolve()}")
