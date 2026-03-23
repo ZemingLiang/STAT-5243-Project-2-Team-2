@@ -100,3 +100,84 @@ result12 = apply_feature_engineering_to_df(df_missing, method="dropna")
 print(result12)
 
 print("\nAll tests finished.")
+
+# Test the dataset sleep_mobile_stress_dataset_15000
+import pandas as pd
+
+from feature_engineering import (
+    apply_feature_engineering_to_df
+)
+
+print("=== Load real dataset ===")
+df = pd.read_csv("sleep_mobile_stress_dataset_15000.csv")
+
+print(df.head())
+print("\nColumns:", df.columns.tolist())
+
+
+# Test 1: log transform
+print("\n=== Test 1: log transform ===")
+
+res1 = apply_feature_engineering_to_df(
+    df=df,
+    method="log",
+    col1="daily_screen_time_hours"
+)
+
+print(res1["data"]["preview"])
+
+
+# Test 2: interaction
+print("\n=== Test 2: interaction ===")
+
+res2 = apply_feature_engineering_to_df(
+    df=df,
+    method="interaction",
+    col1="age",
+    col2="daily_screen_time_hours"
+)
+
+print(res2["data"]["preview"])
+
+
+# Test 3: one-hot encoding
+print("\n=== Test 3: one-hot ===")
+
+res3 = apply_feature_engineering_to_df(
+    df=df,
+    method="one_hot",
+    col1="gender"
+)
+
+print(res3["data"]["preview"])
+
+
+# Test 4: scaling
+print("\n=== Test 4: standardize ===")
+
+res4 = apply_feature_engineering_to_df(
+    df=df,
+    method="standardize",
+    col1="sleep_duration_hours"
+)
+
+print(res4["data"]["preview"])
+
+
+# Test 5: missing handling
+print("\n=== Test 5: fillna ===")
+
+df_missing = df.copy()
+df_missing.loc[0:5, "sleep_duration_hours"] = None
+
+res5 = apply_feature_engineering_to_df(
+    df=df_missing,
+    method="fillna",
+    col1="sleep_duration_hours",
+    strategy="mean"
+)
+
+print(res5["data"]["preview"])
+
+
+print("\n=== ALL TESTS DONE ===")
