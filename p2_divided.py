@@ -28,7 +28,6 @@ Sections
 
 import pandas as pd
 import numpy as np
-import seaborn as sns
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, LabelEncoder
 from typing import Optional, Union
 
@@ -36,19 +35,6 @@ from typing import Optional, Union
 # ---------------------------------------------------------------------------
 #  1. Data Loading
 # ---------------------------------------------------------------------------
-
-
-def load_builtin_iris() -> pd.DataFrame:
-    """Load the built-in Iris dataset from seaborn.
-
-    Returns
-    -------
-    pd.DataFrame
-        The classic 150-row Iris dataset with columns
-        ``sepal_length``, ``sepal_width``, ``petal_length``,
-        ``petal_width``, and ``species``.
-    """
-    return sns.load_dataset("iris")
 
 
 def load_csv(filepath: str, **kwargs) -> pd.DataFrame:
@@ -349,6 +335,11 @@ def scale_columns(
     if non_numeric:
         raise ValueError(
             f"Cannot scale non-numeric columns: {non_numeric}. Select only numeric columns."
+        )
+    all_null = [c for c in columns if df[c].isnull().all()]
+    if all_null:
+        raise ValueError(
+            f"Cannot scale all-null columns: {all_null}. These columns have no valid values."
         )
 
     scaler = scaler_map[method]()
