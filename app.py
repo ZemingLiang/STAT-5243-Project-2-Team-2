@@ -60,6 +60,9 @@ def load_builtin_dataset(name: str) -> pd.DataFrame:
         return pd.read_csv(TEST_DATA_PATH)
     if name == "iris":
         return sklearn_load_iris(as_frame=True).frame
+    if name == "tips":
+        import seaborn as sns
+        return sns.load_dataset("tips")
     raise ValueError(f"Unknown built-in dataset: {name}")
 
 
@@ -71,6 +74,8 @@ def load_uploaded_dataset(path: str, filename: str) -> pd.DataFrame:
         return cleaning.load_excel(path)
     if suffix == ".json":
         return cleaning.load_json(path)
+    if suffix == ".rds":
+        return cleaning.load_rds(path)
     raise ValueError(f"Unsupported file type: {suffix}")
 
 
@@ -484,7 +489,7 @@ app_ui = ui.page_navbar(
                 ui.tags.li(
                     ui.strong("Load a dataset "),
                     "— Pick a built-in dataset (Iris or Sleep/Mobile/Stress) or upload "
-                    "your own CSV, Excel, or JSON file in the Load tab."
+                    "your own CSV, Excel, JSON, or RDS file in the Load tab."
                 ),
                 ui.tags.li(
                     ui.strong("Inspect the data "),
@@ -554,6 +559,7 @@ app_ui = ui.page_navbar(
                         {
                             "sleep_health": "Sleep, Mobile and Stress",
                             "iris": "Iris",
+                            "tips": "Tips (Restaurant)",
                         },
                     ),
                     ui.tooltip(
@@ -569,7 +575,7 @@ app_ui = ui.page_navbar(
                     ui.input_file(
                         "upload_file",
                         "Upload CSV, Excel, or JSON",
-                        accept=[".csv", ".xlsx", ".xls", ".json"],
+                        accept=[".csv", ".xlsx", ".xls", ".json", ".rds"],
                     ),
                     ui.tooltip(
                         ui.input_action_button(
@@ -733,6 +739,7 @@ app_ui = ui.page_navbar(
                         "dropna": "Drop missing rows",
                     },
                 ),
+                ui.output_ui("feature_explanation"),
                 ui.input_select("feature_col1", "Primary column", {}),
                 ui.input_select("feature_col2", "Secondary column", {}),
                 ui.input_text("feature_new_column", "New column name (optional)", ""),
@@ -945,6 +952,7 @@ app_ui = ui.page_navbar(
     theme=shinyswatch.theme.lux,
     fillable=False,
     header=ui.div(
+        ui.busy_indicators.use(),
         ui.tags.style(APP_CSS),
         ui.output_ui("message_stack"),
     ),
@@ -1359,6 +1367,12 @@ def server(input, output, session):
                 push_message("error", payload.get("message", "1D plot failed."))
             else:
                 push_message("success", "1D plot rendered.")
+                col_data = df[column].dropna()
+                if pd.api.types.is_numeric_dtype(col_data):
+                    stats_msg = (f"Stats for {column}: mean={col_data.mean():.3f}, "
+                                 f"median={col_data.median():.3f}, std={col_data.std():.3f}, "
+                                 f"skew={col_data.skew():.3f}")
+                    push_message("info", stats_msg)
         except Exception as exc:
             push_message("error", f"1D plot failed: {exc}")
 
@@ -1412,6 +1426,14 @@ def server(input, output, session):
                 push_message("error", payload.get("message", "Regression failed."))
             else:
                 push_message("success", "Regression rendered.")
+                # Add p-value info
+                from scipy.stats import pearsonr
+                x_data = df[input.regression_x()].dropna()
+                y_data = df[input.regression_y()].dropna()
+                common = df[[input.regression_x(), input.regression_y()]].dropna()
+                if len(common) > 2:
+                    r, p = pearsonr(common.iloc[:, 0], common.iloc[:, 1])
+                    push_message("info", f"Pearson r = {r:.4f}, p-value = {p:.2e} (n={len(common)})")
         except Exception as exc:
             push_message("error", f"Regression failed: {exc}")
 
@@ -1568,6 +1590,31 @@ def server(input, output, session):
     def feature_result_summary():
         text = feature_preview_meta.get()
         return ui.div({"class": "small-note"}, text or "Preview a feature step to see a summary.")
+
+    @output
+    @render.ui
+    def feature_explanation():
+        method = input.feature_method()
+        explanations = {
+            "log": "Applies log(1+x). Reduces right-skew and compresses large values.",
+            "square": "Squares values (x^2). Amplifies differences between large and small values.",
+            "cube": "Cubes values (x^3). Captures cubic relationships, preserves sign.",
+            "interaction": "Multiplies two columns (x * y). Captures combined/synergistic effects.",
+            "ratio": "Divides col1 by col2. Useful for per-unit metrics (e.g., price per sqft).",
+            "binning": "Groups continuous values into discrete bins using equal-width intervals.",
+            "one_hot": "Creates binary 0/1 columns for each category. Required by most ML models.",
+            "standardize": "Z-score normalization: (x - mean) / std. Centers data at 0 with unit variance.",
+            "normalize": "Min-Max scaling to [0, 1]. Preserves shape, bounds values.",
+            "fillna": "Replaces missing values with a computed or constant value.",
+            "dropna": "Removes rows containing missing values in the selected column.",
+        }
+        text = explanations.get(method, "")
+        if not text:
+            return ui.div()
+        return ui.div(
+            {"class": "tip-box", "style": "margin-top: 8px;"},
+            ui.tags.small(text),
+        )
 
     @output
     @render.data_frame

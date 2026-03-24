@@ -14,13 +14,14 @@ cd "/Users/m2/Projects/STAT 5243/Project 2"
 shiny run --reload app.py
 ```
 
-Supported upload formats: CSV, Excel (.xlsx/.xls), and JSON. Two built-in datasets are
-included for demonstration: *Sleep, Mobile and Stress* (15,000 rows) and *Iris* (150 rows).
+Supported upload formats: CSV, Excel (.xlsx/.xls), JSON, and RDS. Three built-in datasets
+are included for demonstration: *Sleep, Mobile and Stress* (15,000 rows), *Iris* (150 rows),
+and *Tips* (244 rows).
 
 ## 2. Main Functionalities
 
-**Data Loading.** Users can upload their own datasets in CSV, Excel, or JSON format, or
-select a built-in dataset to get started immediately. Every loaded or derived dataset is
+**Data Loading.** Users can upload their own datasets in CSV, Excel, JSON, or RDS format,
+or select from three built-in datasets to get started immediately. Every loaded or derived dataset is
 tracked in an in-memory version history with metadata (source, transform, timestamp).
 
 **Data Cleaning and Preprocessing.** The Cleaning tab provides five categories of
@@ -32,9 +33,9 @@ impact of each operation visually.
 
 **Feature Engineering.** Eleven transforms are available: log, square, cube, interaction,
 ratio, binning, one-hot encoding, standardize, normalize, fill NA, and drop NA. Each
-transform is backed by pure DataFrame-in/DataFrame-out functions. The preview workflow
-shows both a data table and a side-by-side comparison chart so users can see the effect of
-the transformation before committing it.
+transform includes a contextual explanation of what it does and when to use it. The preview
+workflow shows both a data table and a side-by-side comparison chart so users can see the
+effect of the transformation before committing it.
 
 **Exploratory Data Analysis (EDA).** The EDA tab provides summary tables (head, describe,
 column types), free-text pandas query filtering, and five visualization panels: 1D plots
@@ -67,7 +68,6 @@ tabs so users can export the active dataset or any preview result at any time.
 ## 5. Limitations and Next Steps
 
 - **Session-local state.** Dataset history lives in memory and is lost when the app restarts.
-- **No RDS support.** RDS loading is intentionally out of scope for this version.
 - **Single-user.** The app is designed for one user at a time in a local browser session.
 - **Future work.** Deploy to a hosted platform (e.g., Posit Connect, Hugging Face Spaces),
-  add more plot types (violin, KDE density), and support Parquet/RDS file formats.
+  add more plot types (violin, KDE density), and support Parquet file format.

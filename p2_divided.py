@@ -1,16 +1,29 @@
 """
 Project 2 - Part 2: Data Cleaning and Preprocessing
-Pure-function backend module (DataFrame → DataFrame)
+====================================================
 
-Refactored per architecture review:
- 
-All cleaning logic extracted as stateless pure functions
+Pure-function backend module providing a complete data-cleaning toolkit.
 
-No UI, no Dash, no state management
+Every public function follows a **stateless, pure-function** contract:
 
-Each function: pd.DataFrame in → pd.DataFrame (or summary dict) out
+    pd.DataFrame in  -->  pd.DataFrame (or summary dict) out
 
-Ready for orchestration via API layer / pipeline
+This means there is no UI code, no Dash/Shiny state, and no side-effects
+beyond the returned object.  The module is designed to be orchestrated by
+an external API layer, interactive notebook, or the built-in
+``run_pipeline`` convenience function.
+
+Sections
+--------
+1. Data Loading        – CSV, Excel, JSON, RDS, built-in Iris
+2. Data Inspection     – shape, dtypes, missing counts, descriptive stats
+3. Missing-Value Handling – drop or impute (mean / median / mode / constant)
+4. Duplicate Handling  – detect and remove duplicate rows
+5. Scaling             – StandardScaler, MinMaxScaler, RobustScaler
+6. Categorical Encoding – LabelEncoder, one-hot (get_dummies)
+7. Outlier Handling    – IQR-based detection, removal, and winsorization
+8. Export              – write cleaned data to CSV
+9. Pipeline Runner     – declarative step-by-step cleaning pipeline
 """
 
 import pandas as pd
@@ -20,43 +33,96 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, La
 from typing import Optional, Union
 
 
-
+# ---------------------------------------------------------------------------
 #  1. Data Loading
+# ---------------------------------------------------------------------------
 
 
 def load_builtin_iris() -> pd.DataFrame:
-    """Load the built-in Iris dataset."""
+    """Load the built-in Iris dataset from seaborn.
+
+    Returns
+    -------
+    pd.DataFrame
+        The classic 150-row Iris dataset with columns
+        ``sepal_length``, ``sepal_width``, ``petal_length``,
+        ``petal_width``, and ``species``.
+    """
     return sns.load_dataset("iris")
 
 
 def load_csv(filepath: str, **kwargs) -> pd.DataFrame:
-    """Load a CSV file into a DataFrame."""
+    """Load a CSV file into a pandas DataFrame.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the ``.csv`` file.
+    **kwargs
+        Additional keyword arguments forwarded to ``pd.read_csv``.
+
+    Returns
+    -------
+    pd.DataFrame
+        The loaded dataset.
+    """
     return pd.read_csv(filepath, **kwargs)
 
 
 def load_excel(filepath: str, **kwargs) -> pd.DataFrame:
-    """Load an Excel file (.xlsx / .xls) into a DataFrame."""
+    """Load an Excel file (.xlsx / .xls) into a pandas DataFrame.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the Excel file.
+    **kwargs
+        Additional keyword arguments forwarded to ``pd.read_excel``.
+
+    Returns
+    -------
+    pd.DataFrame
+        The loaded dataset.
+    """
     return pd.read_excel(filepath, **kwargs)
 
 
 def load_json(filepath: str, **kwargs) -> pd.DataFrame:
-    """Load a JSON file into a DataFrame."""
+    """Load a JSON file into a pandas DataFrame.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the ``.json`` file.
+    **kwargs
+        Additional keyword arguments forwarded to ``pd.read_json``.
+
+    Returns
+    -------
+    pd.DataFrame
+        The loaded dataset.
+    """
     return pd.read_json(filepath, **kwargs)
 
 
-
+# ---------------------------------------------------------------------------
 #  2. Data Overview / Inspection
+# ---------------------------------------------------------------------------
 
 
 def get_overview(df: pd.DataFrame) -> dict:
-    """
-    Return a summary dict with basic dataset information.
+    """Return a summary dict with basic dataset information.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input dataset.
 
     Returns
-    
-    dict with keys:
-        n_rows, n_cols, n_missing, n_duplicates,
-        numeric_columns, categorical_columns
+    -------
+    dict
+        Keys: ``n_rows``, ``n_cols``, ``n_missing``, ``n_duplicates``,
+        ``numeric_columns``, ``categorical_columns``.
     """
     num_cols = df.select_dtypes(include="number").columns.tolist()
     cat_cols = df.select_dtypes(exclude="number").columns.tolist()
@@ -71,22 +137,44 @@ def get_overview(df: pd.DataFrame) -> dict:
 
 
 def get_column_info(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Return a DataFrame summarising each column's dtype,
-    non-null count, missing count / percentage, and unique count.
+    """Return a per-column summary of dtype, nulls, and unique counts.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per column with fields ``Column``, ``Dtype``,
+        ``Non-Null``, ``Missing``, ``Missing %``, and ``Unique``.
     """
     return pd.DataFrame({
         "Column": df.columns,
         "Dtype": df.dtypes.astype(str).values,
         "Non-Null": df.notnull().sum().values,
         "Missing": df.isnull().sum().values,
+        # Guard against zero-length DataFrames with max(..., 1)
         "Missing %": (df.isnull().sum().values / max(len(df), 1) * 100).round(2),
         "Unique": df.nunique().values,
     })
 
 
 def get_descriptive_stats(df: pd.DataFrame) -> pd.DataFrame:
-    """Return descriptive statistics for all columns."""
+    """Return descriptive statistics for all columns.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+
+    Returns
+    -------
+    pd.DataFrame
+        Transposed output of ``df.describe(include='all')`` with an
+        added ``Column`` field.
+    """
     return (
         df.describe(include="all")
         .T
@@ -95,8 +183,9 @@ def get_descriptive_stats(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-
+# ---------------------------------------------------------------------------
 #  3. Missing-Value Handling
+# ---------------------------------------------------------------------------
 
 
 def handle_missing(
@@ -105,25 +194,30 @@ def handle_missing(
     strategy: str = "drop_rows",
     constant_value: Optional[str] = None,
 ) -> pd.DataFrame:
-    """
-    Handle missing values and return a cleaned DataFrame.
+    """Handle missing values and return a cleaned DataFrame.
 
     Parameters
-    
-    df : DataFrame
-    columns : list of column names to operate on (None = all columns)
-    strategy : one of
-        'drop_rows'  – drop rows that have NaN in *columns*
-        'drop_cols'  – drop columns (from *columns*) that contain any NaN
-        'mean'       – fill NaN with column mean  (numeric only)
-        'median'     – fill NaN with column median (numeric only)
-        'mode'       – fill NaN with column mode
-        'constant'   – fill NaN with *constant_value*
-    constant_value : value used when strategy='constant'
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+    columns : list[str] or None
+        Column names to operate on.  ``None`` means all columns.
+    strategy : str
+        One of:
+
+        * ``'drop_rows'``  -- drop rows that have NaN in *columns*
+        * ``'drop_cols'``  -- drop columns (from *columns*) that contain any NaN
+        * ``'mean'``       -- fill NaN with column mean  (numeric only)
+        * ``'median'``     -- fill NaN with column median (numeric only)
+        * ``'mode'``       -- fill NaN with column mode
+        * ``'constant'``   -- fill NaN with *constant_value*
+    constant_value : str or None
+        Value used when ``strategy='constant'``.  Defaults to ``"0"``.
 
     Returns
-    
-    pd.DataFrame – a new DataFrame with missing values handled
+    -------
+    pd.DataFrame
+        A new DataFrame with missing values handled.
     """
     df = df.copy()
     cols = columns if columns else df.columns.tolist()
@@ -144,6 +238,7 @@ def handle_missing(
     elif strategy == "mode":
         for c in cols:
             if c in df.columns and not df[c].mode().empty:
+                # mode() returns a Series; take the first (most frequent) value
                 df[c] = df[c].fillna(df[c].mode()[0])
     elif strategy == "constant":
         val = constant_value if constant_value is not None else "0"
@@ -156,22 +251,46 @@ def handle_missing(
     return df.reset_index(drop=True)
 
 
-
+# ---------------------------------------------------------------------------
 #  4. Duplicate Handling
+# ---------------------------------------------------------------------------
 
 
 def get_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-    """Return all duplicate rows (including all copies)."""
+    """Return all duplicate rows, including every copy.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+
+    Returns
+    -------
+    pd.DataFrame
+        Subset of *df* where ``duplicated(keep=False)`` is True.
+    """
     return df[df.duplicated(keep=False)]
 
 
 def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove duplicate rows and return a new DataFrame."""
+    """Remove duplicate rows and return a new DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+
+    Returns
+    -------
+    pd.DataFrame
+        De-duplicated DataFrame with a reset integer index.
+    """
     return df.drop_duplicates().reset_index(drop=True)
 
 
-
+# ---------------------------------------------------------------------------
 #  5. Scaling / Normalization
+# ---------------------------------------------------------------------------
 
 
 def scale_columns(
@@ -179,30 +298,49 @@ def scale_columns(
     columns: list[str],
     method: str = "standard",
 ) -> pd.DataFrame:
-    """
-    Scale numeric columns in-place and return a new DataFrame.
+    """Scale numeric columns and return a new DataFrame.
 
     Parameters
-    
-    columns : list of numeric column names
-    method  : 'standard' | 'minmax' | 'robust'
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+    columns : list[str]
+        Numeric column names to scale.
+    method : str
+        Scaling algorithm to apply:
+
+        * ``'standard'`` -- **StandardScaler**: centres each column to
+          mean = 0, std = 1 using ``(x - mean) / std``.
+        * ``'minmax'``   -- **MinMaxScaler**: rescales each column to
+          the [0, 1] range via ``(x - min) / (max - min)``.
+        * ``'robust'``   -- **RobustScaler**: centres using the median
+          and scales by the IQR ``(x - median) / IQR``, making it
+          resistant to outliers.
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of *df* with the specified columns scaled.
     """
     df = df.copy()
     scaler_map = {
-        "standard": StandardScaler,
-        "minmax": MinMaxScaler,
-        "robust": RobustScaler,
+        "standard": StandardScaler,   # z-score: (x - mean) / std
+        "minmax": MinMaxScaler,       # rescale to [0, 1]: (x - min) / (max - min)
+        "robust": RobustScaler,       # outlier-resistant: (x - median) / IQR
     }
     if method not in scaler_map:
         raise ValueError(f"Unknown method: {method}. Choose from {list(scaler_map)}")
 
+    # Instantiate the chosen scaler, fit on the selected columns, and
+    # replace those columns with the transformed values.
     scaler = scaler_map[method]()
     df[columns] = scaler.fit_transform(df[columns])
     return df
 
 
-
+# ---------------------------------------------------------------------------
 #  6. Categorical Encoding
+# ---------------------------------------------------------------------------
 
 
 def encode_columns(
@@ -210,29 +348,50 @@ def encode_columns(
     columns: list[str],
     method: str = "label",
 ) -> pd.DataFrame:
-    """
-    Encode categorical columns and return a new DataFrame.
+    """Encode categorical columns and return a new DataFrame.
 
     Parameters
-    
-    columns : list of categorical column names
-    method  : 'label' | 'onehot'
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+    columns : list[str]
+        Categorical column names to encode.
+    method : str
+        Encoding strategy:
+
+        * ``'label'``  -- **LabelEncoder**: maps each unique category to
+          a consecutive integer (0, 1, 2, ...).  Each column is encoded
+          independently.
+        * ``'onehot'`` -- **One-hot (pd.get_dummies)**: creates a new
+          binary (0/1) column for *every* category in the original column.
+          The original column is dropped.
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of *df* with the specified columns encoded.
     """
     df = df.copy()
     if method == "label":
+        # LabelEncoder works on a single column at a time, so we loop.
+        # Values are cast to str first to handle mixed types gracefully.
         le = LabelEncoder()
         for c in columns:
             if c in df.columns:
                 df[c] = le.fit_transform(df[c].astype(str))
     elif method == "onehot":
+        # get_dummies expands each categorical column into k binary columns
+        # (one per unique value).  dtype=int ensures 0/1 integers rather
+        # than True/False booleans.
         df = pd.get_dummies(df, columns=columns, drop_first=False, dtype=int)
     else:
         raise ValueError(f"Unknown method: {method}. Choose 'label' or 'onehot'.")
     return df
 
 
-
+# ---------------------------------------------------------------------------
 #  7. Outlier Handling
+# ---------------------------------------------------------------------------
 
 
 def detect_outliers(
@@ -240,21 +399,47 @@ def detect_outliers(
     column: str,
     iqr_multiplier: float = 1.5,
 ) -> dict:
-    """
-    Detect outliers via the IQR method and return diagnostic info.
+    """Detect outliers via the IQR method and return diagnostic info.
+
+    The **Interquartile Range (IQR)** method works as follows:
+
+    1. Compute Q1 (25th percentile) and Q3 (75th percentile).
+    2. IQR = Q3 - Q1  (the spread of the middle 50 % of data).
+    3. Lower bound = Q1 - ``iqr_multiplier`` * IQR.
+    4. Upper bound = Q3 + ``iqr_multiplier`` * IQR.
+    5. Any value below the lower bound or above the upper bound is
+       flagged as an outlier.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+    column : str
+        Numeric column to inspect.
+    iqr_multiplier : float, default 1.5
+        Multiplier applied to the IQR to determine the fence width.
+        A value of 1.5 flags mild outliers; 3.0 flags extreme outliers.
 
     Returns
-    
-    dict with keys:
-        q1, q3, iqr, lower_bound, upper_bound,
-        n_outliers, outlier_mask (boolean Series)
+    -------
+    dict
+        Keys: ``q1``, ``q3``, ``iqr``, ``lower_bound``, ``upper_bound``,
+        ``n_outliers``, ``outlier_mask`` (boolean Series).
     """
+    # Step 1: Compute the first and third quartiles
     q1 = df[column].quantile(0.25)
     q3 = df[column].quantile(0.75)
+
+    # Step 2: IQR is the spread of the middle 50% of the distribution
     iqr = q3 - q1
+
+    # Step 3-4: Fences define the acceptable range; anything outside is an outlier
     lower = q1 - iqr_multiplier * iqr
     upper = q3 + iqr_multiplier * iqr
+
+    # Step 5: Boolean mask -- True for rows that fall outside the fences
     mask = (df[column] < lower) | (df[column] > upper)
+
     return {
         "q1": q1,
         "q3": q3,
@@ -272,64 +457,120 @@ def handle_outliers(
     action: str = "remove",
     iqr_multiplier: float = 1.5,
 ) -> pd.DataFrame:
-    """
-    Handle outliers in a single column and return a new DataFrame.
+    """Handle outliers in a single numeric column.
+
+    Uses the IQR method (see ``detect_outliers``) to identify outlier
+    rows, then either removes them or caps (winsorizes) the values.
 
     Parameters
-    
-    action : 'remove' – drop outlier rows
-             'cap'    – winsorize (clip to bounds)
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+    column : str
+        Numeric column to clean.
+    action : str
+        * ``'remove'`` -- drop rows whose value falls outside the IQR
+          fences.
+        * ``'cap'``    -- clip (winsorize) outlier values to the nearest
+          fence boundary so no data rows are lost.
+    iqr_multiplier : float, default 1.5
+        Multiplier forwarded to ``detect_outliers``.
+
+    Returns
+    -------
+    pd.DataFrame
+        A new DataFrame with outliers handled.
     """
     df = df.copy()
+
+    # Reuse detect_outliers to get the IQR-based fence boundaries
     info = detect_outliers(df, column, iqr_multiplier)
     lower, upper = info["lower_bound"], info["upper_bound"]
 
     if action == "remove":
+        # Keep only rows within [lower, upper]
         df = df[(df[column] >= lower) & (df[column] <= upper)].reset_index(drop=True)
     elif action == "cap":
+        # Winsorize: clip values so they sit at the fence boundaries
         df[column] = df[column].clip(lower, upper)
     else:
         raise ValueError(f"Unknown action: {action}. Choose 'remove' or 'cap'.")
     return df
 
 
-
+# ---------------------------------------------------------------------------
 #  8. Export
+# ---------------------------------------------------------------------------
 
 
 def export_csv(df: pd.DataFrame, filepath: str, **kwargs) -> None:
-    """Save the DataFrame to a CSV file."""
+    """Save the DataFrame to a CSV file.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The dataset to export.
+    filepath : str
+        Destination path for the ``.csv`` file.
+    **kwargs
+        Additional keyword arguments forwarded to ``df.to_csv``.
+    """
     df.to_csv(filepath, index=False, **kwargs)
 
 
-
-#  Pipeline helper (optional convenience)
+# ---------------------------------------------------------------------------
+#  9. Pipeline Runner (convenience helper)
+# ---------------------------------------------------------------------------
 
 
 def run_pipeline(
     df: pd.DataFrame,
     steps: list[dict],
 ) -> pd.DataFrame:
-    """
-    Execute a sequence of cleaning steps declaratively.
+    """Execute a sequence of cleaning steps declaratively.
+
+    Each step is a dict whose ``"action"`` key selects a cleaning
+    function, and whose remaining keys are forwarded as keyword
+    arguments to that function.
+
+    The pipeline processes steps **sequentially**: the output DataFrame
+    of step *n* becomes the input of step *n + 1*.
 
     Parameters
-    
-    steps : list of dicts, each with 'action' and relevant params.
-        Example:
-        [
-            {"action": "handle_missing", "strategy": "mean"},
-            {"action": "remove_duplicates"},
-            {"action": "scale_columns", "columns": ["col1"], "method": "standard"},
-            {"action": "encode_columns", "columns": ["species"], "method": "onehot"},
-            {"action": "handle_outliers", "column": "col1", "action_type": "cap"},
-        ]
+    ----------
+    df : pd.DataFrame
+        The initial (raw) dataset.
+    steps : list[dict]
+        Ordered cleaning steps.  Example::
+
+            [
+                {"action": "handle_missing", "strategy": "mean"},
+                {"action": "remove_duplicates"},
+                {"action": "scale_columns",
+                 "columns": ["col1"], "method": "standard"},
+                {"action": "encode_columns",
+                 "columns": ["species"], "method": "onehot"},
+                {"action": "handle_outliers",
+                 "column": "col1", "action_type": "cap"},
+            ]
+
+    Returns
+    -------
+    pd.DataFrame
+        The fully cleaned dataset after all steps have been applied.
     """
+    # Dispatch table: maps action names to callables.
+    # Each lambda receives (DataFrame, step_dict) and returns a new DataFrame.
+    # The "action" key is stripped from kwargs before forwarding so it does not
+    # collide with actual function parameters.
     dispatch = {
         "handle_missing": lambda d, p: handle_missing(d, **{k: v for k, v in p.items() if k != "action"}),
         "remove_duplicates": lambda d, _: remove_duplicates(d),
         "scale_columns": lambda d, p: scale_columns(d, **{k: v for k, v in p.items() if k != "action"}),
         "encode_columns": lambda d, p: encode_columns(d, **{k: v for k, v in p.items() if k != "action"}),
+        # handle_outliers needs special treatment because the step dict uses
+        # "action_type" (to avoid clashing with the top-level "action" key)
+        # while the function parameter is named "action".
         "handle_outliers": lambda d, p: handle_outliers(
             d,
             column=p["column"],
@@ -338,6 +579,7 @@ def run_pipeline(
         ),
     }
 
+    # Walk through each step in order, threading the DataFrame through
     for step in steps:
         action = step["action"]
         if action not in dispatch:
@@ -346,8 +588,33 @@ def run_pipeline(
     return df
 
 
+# ---------------------------------------------------------------------------
+#  10. RDS Loading
+# ---------------------------------------------------------------------------
 
-#  demo
+
+def load_rds(filepath: str, **kwargs) -> pd.DataFrame:
+    """Load an RDS file into a pandas DataFrame.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the .rds file.
+
+    Returns
+    -------
+    pd.DataFrame
+        The loaded dataset.
+    """
+    import pyreadr
+    result = pyreadr.read_r(filepath)
+    # RDS files contain a single R object; extract the first (and usually only) one
+    return list(result.values())[0]
+
+
+# ---------------------------------------------------------------------------
+#  Demo
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
 
