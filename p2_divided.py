@@ -508,6 +508,91 @@ def handle_outliers(
 
 
 # ---------------------------------------------------------------------------
+#  7b. Text Standardization & Type Coercion
+# ---------------------------------------------------------------------------
+
+
+def standardize_text(
+    df: pd.DataFrame,
+    columns: Optional[list[str]] = None,
+    strip: bool = True,
+    case: str = "lower",
+) -> pd.DataFrame:
+    """Standardize whitespace and letter case in string columns.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+    columns : list[str] or None
+        String columns to standardize.  ``None`` means all object/string columns.
+    strip : bool
+        If ``True``, strip leading/trailing whitespace and collapse multiple
+        internal spaces into one.
+    case : str
+        Letter-case transform: ``'lower'``, ``'upper'``, ``'title'``, or
+        ``'none'`` (skip case change).
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of *df* with the specified text columns cleaned.
+    """
+    df = df.copy()
+    cols = columns if columns else df.select_dtypes(include=["object", "string"]).columns.tolist()
+    for c in cols:
+        if c not in df.columns:
+            continue
+        s = df[c].astype(str)
+        if strip:
+            s = s.str.strip().str.replace(r"\s+", " ", regex=True)
+        if case == "lower":
+            s = s.str.lower()
+        elif case == "upper":
+            s = s.str.upper()
+        elif case == "title":
+            s = s.str.title()
+        df[c] = s
+    return df
+
+
+def coerce_column_types(
+    df: pd.DataFrame,
+    columns: Optional[list[str]] = None,
+    target: str = "numeric",
+) -> pd.DataFrame:
+    """Coerce columns to a consistent data type.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+    columns : list[str] or None
+        Columns to coerce.  ``None`` means all columns.
+    target : str
+        Target type: ``'numeric'`` (via ``pd.to_numeric``, non-convertible
+        become NaN) or ``'string'`` (via ``astype(str)``).
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of *df* with the specified columns coerced.
+    """
+    df = df.copy()
+    cols = columns if columns else df.columns.tolist()
+    for c in cols:
+        if c not in df.columns:
+            continue
+        if target == "numeric":
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        elif target == "string":
+            df[c] = df[c].astype(str)
+        else:
+            raise ValueError(f"Unknown target type: {target}. Use 'numeric' or 'string'.")
+    return df
+
+
+# ---------------------------------------------------------------------------
 #  8. Export
 # ---------------------------------------------------------------------------
 

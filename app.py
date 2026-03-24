@@ -621,6 +621,8 @@ app_ui = ui.page_navbar(
                         "scale_columns": "Scale numeric columns",
                         "encode_columns": "Encode categorical columns",
                         "handle_outliers": "Handle outliers",
+                        "standardize_text": "Standardize text (whitespace & case)",
+                        "coerce_types": "Coerce column types",
                     },
                 ),
                 ui.input_selectize(
@@ -674,6 +676,22 @@ app_ui = ui.page_navbar(
                         {"remove": "Remove rows", "cap": "Cap values"},
                     ),
                     ui.input_numeric("clean_iqr", "IQR multiplier", 1.5, min=0.5, step=0.5),
+                ),
+                ui.panel_conditional(
+                    "input.clean_action === 'standardize_text'",
+                    ui.input_select(
+                        "clean_text_case",
+                        "Case transform",
+                        {"lower": "Lowercase", "upper": "Uppercase", "title": "Title Case", "none": "No change"},
+                    ),
+                ),
+                ui.panel_conditional(
+                    "input.clean_action === 'coerce_types'",
+                    ui.input_select(
+                        "clean_coerce_target",
+                        "Target type",
+                        {"numeric": "Numeric (non-convertible → NaN)", "string": "String"},
+                    ),
                 ),
                 ui.input_radio_buttons(
                     "clean_save_mode",
@@ -1127,6 +1145,8 @@ def server(input, output, session):
             )
         elif action == "remove_duplicates":
             transformed = cleaning.remove_duplicates(df)
+            n_dupes = len(df) - len(transformed)
+            return transformed, f"Found {n_dupes} duplicate rows out of {len(df)} total."
         elif action == "scale_columns":
             columns = list(input.clean_columns() or [])
             if not columns:
@@ -1153,6 +1173,18 @@ def server(input, output, session):
             return transformed, (
                 f"Outlier handling on {column}: {diagnostics['n_outliers']} outliers "
                 f"identified with IQR multiplier {input.clean_iqr()}."
+            )
+        elif action == "standardize_text":
+            columns = list(input.clean_columns() or [])
+            transformed = cleaning.standardize_text(
+                df, columns=columns or None, case=input.clean_text_case(),
+            )
+        elif action == "coerce_types":
+            columns = list(input.clean_columns() or [])
+            if not columns:
+                raise ValueError("Select one or more columns to coerce.")
+            transformed = cleaning.coerce_column_types(
+                df, columns=columns, target=input.clean_coerce_target(),
             )
         else:
             raise ValueError(f"Unsupported cleaning action: {action}")
@@ -1192,11 +1224,16 @@ def server(input, output, session):
     def _preview_cleaning() -> None:
         try:
             transformed, summary = compute_cleaning_result()
-            cleaning_preview_df.set(transformed.head(20))
-            cleaning_preview_meta.set(summary)
-            # Build before/after comparison chart
             df = current_df()
             action = input.clean_action()
+            # For duplicates, show the duplicate rows instead of the result head
+            if action == "remove_duplicates" and df is not None:
+                dupes = cleaning.get_duplicates(df)
+                cleaning_preview_df.set(dupes.head(20) if not dupes.empty else transformed.head(20))
+            else:
+                cleaning_preview_df.set(transformed.head(20))
+            cleaning_preview_meta.set(summary)
+            # Build before/after comparison chart
 
             # Detect row-removal operations — show row count comparison
             is_row_removal = (
@@ -1262,7 +1299,22 @@ def server(input, output, session):
             strategy=input.feature_fill_strategy(),
             fill_value=coerce_text_value(input.feature_fill_value()),
         )
-        return transformed, f"{meta['feature_type']} created/updated columns: {meta['output_columns']}", meta
+        # Build a rich summary including formula and key statistics
+        parts = [f"{meta['feature_type']} → columns: {meta['output_columns']}"]
+        if meta.get("formula"):
+            parts.append(f"Formula: {meta['formula']}")
+        if meta.get("mean") is not None:
+            parts.append(f"mean={meta['mean']:.4f}, std={meta['std']:.4f}")
+        if meta.get("min") is not None and meta.get("max") is not None:
+            parts.append(f"min={meta['min']:.4f}, max={meta['max']:.4f}")
+        if meta.get("fill_value_used") is not None:
+            parts.append(f"fill_value={meta['fill_value_used']}")
+        if meta.get("n_zero_denominator"):
+            parts.append(f"zero-denominator rows: {meta['n_zero_denominator']}")
+        if meta.get("rows_removed") is not None:
+            parts.append(f"rows removed: {meta['rows_removed']}")
+        summary = " | ".join(parts)
+        return transformed, summary, meta
 
     @reactive.effect
     @reactive.event(input.preview_feature_btn)
