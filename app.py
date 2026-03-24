@@ -816,7 +816,7 @@ app_ui = ui.page_navbar(
                 ui.input_text_area(
                     "filter_expr",
                     "Pandas query expression",
-                    placeholder='Example: age > 30 and gender == "Female"',
+                    placeholder='Example: age > 30 and gender == "Female"  |  Use `backticks` for column names with spaces',
                     rows=2,
                 ),
                 ui.div(

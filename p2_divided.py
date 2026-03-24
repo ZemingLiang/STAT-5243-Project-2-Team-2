@@ -102,7 +102,13 @@ def load_json(filepath: str, **kwargs) -> pd.DataFrame:
     pd.DataFrame
         The loaded dataset.
     """
-    return pd.read_json(filepath, **kwargs)
+    try:
+        return pd.read_json(filepath, **kwargs)
+    except ValueError as exc:
+        raise ValueError(
+            f"Failed to parse JSON as a flat table: {exc}. "
+            "Ensure the JSON file contains a flat array of records or a column-oriented object."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -230,11 +236,16 @@ def handle_missing(
     elif strategy == "mean":
         for c in cols:
             if c in df.columns and pd.api.types.is_numeric_dtype(df[c]):
-                df[c] = df[c].fillna(df[c].mean())
+                fill_val = df[c].mean()
+                if pd.notna(fill_val):
+                    df[c] = df[c].fillna(fill_val)
+                # Skip all-null columns where mean is NaN
     elif strategy == "median":
         for c in cols:
             if c in df.columns and pd.api.types.is_numeric_dtype(df[c]):
-                df[c] = df[c].fillna(df[c].median())
+                fill_val = df[c].median()
+                if pd.notna(fill_val):
+                    df[c] = df[c].fillna(fill_val)
     elif strategy == "mode":
         for c in cols:
             if c in df.columns and not df[c].mode().empty:
@@ -333,6 +344,13 @@ def scale_columns(
 
     # Instantiate the chosen scaler, fit on the selected columns, and
     # replace those columns with the transformed values.
+    # Validate that all selected columns are numeric before scaling
+    non_numeric = [c for c in columns if not pd.api.types.is_numeric_dtype(df[c])]
+    if non_numeric:
+        raise ValueError(
+            f"Cannot scale non-numeric columns: {non_numeric}. Select only numeric columns."
+        )
+
     scaler = scaler_map[method]()
     df[columns] = scaler.fit_transform(df[columns])
     return df

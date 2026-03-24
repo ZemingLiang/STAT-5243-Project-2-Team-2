@@ -9,3 +9,4 @@ statsmodels>=0.13
 scipy>=1.7
 openpyxl>=3.0
 pyreadr>=0.5
+seaborn>=0.13
