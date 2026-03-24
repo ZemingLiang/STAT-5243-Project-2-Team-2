@@ -232,6 +232,27 @@ def build_comparison_figure(
     return fig
 
 
+def build_rowcount_figure(before_count: int, after_count: int, action: str) -> go.Figure:
+    """Bar chart comparing row counts before vs after a row-removal operation."""
+    fig = go.Figure()
+    removed = before_count - after_count
+    fig.add_bar(
+        x=["Before", "After"],
+        y=[before_count, after_count],
+        marker_color=["#94a3b8", "#4361ee"],
+        text=[f"{before_count:,}", f"{after_count:,}"],
+        textposition="outside",
+        width=0.5,
+    )
+    fig.update_layout(
+        title=f"{action}: {removed:,} rows removed ({before_count:,} → {after_count:,})",
+        yaxis_title="Row count",
+        height=280,
+        margin=dict(t=50, b=30, l=60, r=20),
+    )
+    return fig
+
+
 def figure_from_payload(payload: dict[str, Any]) -> go.Figure:
     status = payload.get("status")
     if status == "error":
@@ -1168,15 +1189,29 @@ def server(input, output, session):
             # Build before/after comparison chart
             df = current_df()
             action = input.clean_action()
-            if action == "handle_outliers":
-                col = input.clean_single_column()
+
+            # Detect row-removal operations — show row count comparison
+            is_row_removal = (
+                action == "remove_duplicates"
+                or (action == "handle_missing" and input.clean_strategy() in ("drop_rows", "drop_cols"))
+                or (action == "handle_outliers" and input.clean_outlier_action() == "remove")
+            )
+
+            if is_row_removal and df is not None:
+                clean_comparison_fig.set(
+                    build_rowcount_figure(len(df), len(transformed), action.replace("_", " ").title())
+                )
             else:
-                cols = list(input.clean_columns() or [])
-                col = cols[0] if cols else None
-            if col and df is not None and col in df.columns and col in transformed.columns:
-                clean_comparison_fig.set(build_comparison_figure(df[col], transformed[col], col))
-            else:
-                clean_comparison_fig.set(None)
+                # Value-changing operation — show distribution comparison
+                if action == "handle_outliers":
+                    col = input.clean_single_column()
+                else:
+                    cols = list(input.clean_columns() or [])
+                    col = cols[0] if cols else None
+                if col and df is not None and col in df.columns and col in transformed.columns:
+                    clean_comparison_fig.set(build_comparison_figure(df[col], transformed[col], col))
+                else:
+                    clean_comparison_fig.set(None)
             push_message("info", "Cleaning preview updated.")
         except Exception as exc:
             push_message("error", f"Cleaning preview failed: {exc}")
@@ -1199,7 +1234,7 @@ def server(input, output, session):
         except Exception as exc:
             push_message("error", f"Cleaning apply failed: {exc}")
 
-    def compute_feature_result() -> tuple[pd.DataFrame, str]:
+    def compute_feature_result() -> tuple[pd.DataFrame, str, dict]:
         df = current_df()
         if df is None:
             raise ValueError("Load a dataset first.")
@@ -1219,20 +1254,28 @@ def server(input, output, session):
             strategy=input.feature_fill_strategy(),
             fill_value=coerce_text_value(input.feature_fill_value()),
         )
-        return transformed, f"{meta['feature_type']} created/updated columns: {meta['output_columns']}"
+        return transformed, f"{meta['feature_type']} created/updated columns: {meta['output_columns']}", meta
 
     @reactive.effect
     @reactive.event(input.preview_feature_btn)
     def _preview_feature() -> None:
         try:
-            transformed, summary = compute_feature_result()
+            transformed, summary, meta = compute_feature_result()
             feature_preview_df.set(transformed.head(20))
             feature_preview_meta.set(summary)
-            # Build before/after comparison chart
+            # Build before/after comparison chart using correct columns
             df = current_df()
-            col = input.feature_col1()
-            if col and df is not None and col in df.columns and col in transformed.columns:
-                feature_comparison_fig.set(build_comparison_figure(df[col], transformed[col], col))
+            input_col = (meta.get("input_columns") or [None])[0]
+            output_cols = meta.get("output_columns", [])
+            out_col = output_cols[0] if output_cols else None
+            if (input_col and out_col and df is not None
+                    and input_col in df.columns and out_col in transformed.columns):
+                feature_comparison_fig.set(
+                    build_comparison_figure(
+                        df[input_col], transformed[out_col],
+                        f"{input_col} -> {out_col}",
+                    )
+                )
             else:
                 feature_comparison_fig.set(None)
             push_message("info", "Feature-engineering preview updated.")
@@ -1243,7 +1286,7 @@ def server(input, output, session):
     @reactive.event(input.apply_feature_btn)
     def _apply_feature() -> None:
         try:
-            transformed, summary = compute_feature_result()
+            transformed, summary, _meta = compute_feature_result()
             target_key = apply_transformed_result(
                 transformed,
                 mode=input.feature_save_mode(),
