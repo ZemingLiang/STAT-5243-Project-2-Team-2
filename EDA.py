@@ -1618,3 +1618,57 @@ def plot_multiline(
             "data": _json_ready(data),
         }
     return _success(_json_ready(data))
+
+
+# ============================================================================
+# correlation_matrix — public API
+# ============================================================================
+
+def correlation_matrix(
+    df: pd.DataFrame,
+    columns: list[str] | None = None,
+    method: str = "pearson",
+) -> dict[str, Any]:
+    """
+    Compute the correlation matrix for numeric columns.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame.
+    columns : list[str] | None
+        Specific columns to include.  If ``None``, all numeric columns are used.
+    method : str
+        Correlation method: ``"pearson"``, ``"spearman"``, or ``"kendall"``.
+
+    Returns
+    -------
+    dict
+        JSON-friendly payload with ``plot_type="correlation_matrix"``,
+        ``columns``, ``values`` (nested list), and ``method``.
+    """
+    if method not in {"pearson", "spearman", "kendall"}:
+        return _error(f"Unsupported method '{method}'. Use pearson, spearman, or kendall.")
+
+    if columns is not None:
+        err = _validate_columns(df, columns)
+        if err:
+            return _error(err)
+        numeric_cols = [c for c in columns if _is_numeric(df[c])]
+    else:
+        numeric_cols = [c for c in df.columns if _is_numeric(df[c])]
+
+    if len(numeric_cols) < 2:
+        return _error("Need at least 2 numeric columns for a correlation matrix.")
+
+    corr_df = df[numeric_cols].corr(method=method)
+    values = corr_df.values.tolist()
+    # Replace any NaN from constant columns
+    values = [[None if (v != v) else round(v, 4) for v in row] for row in values]
+
+    return _success({
+        "plot_type": "correlation_matrix",
+        "columns": list(numeric_cols),
+        "values": values,
+        "method": method,
+    })
