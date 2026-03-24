@@ -7,20 +7,54 @@ from typing import Any
 
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 from sklearn.datasets import load_iris as sklearn_load_iris
 from shiny import App, reactive, render, ui
 from shinywidgets import output_widget, render_plotly
+import shinyswatch
 
 import EDA
 import feature_engineering
 import p2_divided as cleaning
 
 
+# ---------------------------------------------------------------------------
+# Plotly global template — consistent chart styling across the entire app
+# ---------------------------------------------------------------------------
+_app_template = go.layout.Template(
+    layout=go.Layout(
+        font=dict(family="'Nunito Sans', system-ui, sans-serif", color="#1e293b", size=13),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        colorway=[
+            "#1a1a2e", "#4361ee", "#7209b7", "#06d6a0", "#f77f00",
+            "#d62828", "#0891b2", "#16a34a", "#e11d48", "#ca8a04",
+        ],
+        title=dict(font=dict(size=16, color="#1a1a2e")),
+        xaxis=dict(gridcolor="#e2e8f0", linecolor="#cbd5e1", zeroline=False),
+        yaxis=dict(gridcolor="#e2e8f0", linecolor="#cbd5e1", zeroline=False),
+        margin=dict(t=50, r=16, b=40, l=50),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02,
+            xanchor="right", x=1, bgcolor="rgba(255,255,255,0.8)",
+        ),
+    )
+)
+pio.templates["app_theme"] = _app_template
+pio.templates.default = "app_theme"
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
 TEST_DATA_PATH = BASE_DIR / "test_data" / "sleep_mobile_stress_dataset_15000.csv"
 
 
+# ---------------------------------------------------------------------------
+# Pure helper functions (NO changes from original)
+# ---------------------------------------------------------------------------
 def load_builtin_dataset(name: str) -> pd.DataFrame:
     if name == "sleep_health":
         return pd.read_csv(TEST_DATA_PATH)
@@ -155,15 +189,12 @@ def widths(edges: list[float]) -> list[float]:
     return [float(edges[i + 1]) - float(edges[i]) for i in range(len(edges) - 1)]
 
 
+# ---------------------------------------------------------------------------
+# Figure helpers
+# ---------------------------------------------------------------------------
 def empty_figure(title: str = "No plot yet.") -> go.Figure:
     fig = go.Figure()
-    fig.update_layout(
-        title=title,
-        template="plotly_white",
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        margin=dict(t=60, r=20, b=40, l=40),
-    )
+    fig.update_layout(title=title)
     return fig
 
 
@@ -179,7 +210,7 @@ def build_comparison_figure(
         )
         fig.add_histogram(
             x=after.dropna(), name="After",
-            marker_color="#2563eb", row=1, col=2,
+            marker_color="#4361ee", row=1, col=2,
         )
     else:
         vc_before = before.value_counts().head(15)
@@ -190,11 +221,10 @@ def build_comparison_figure(
         )
         fig.add_bar(
             x=vc_after.index.astype(str), y=vc_after.values,
-            name="After", marker_color="#2563eb", row=1, col=2,
+            name="After", marker_color="#4361ee", row=1, col=2,
         )
     fig.update_layout(
         title=f"Before / After: {col_name}",
-        template="plotly_white",
         showlegend=False,
         height=280,
         margin=dict(t=50, b=30, l=40, r=20),
@@ -212,7 +242,7 @@ def figure_from_payload(payload: dict[str, Any]) -> go.Figure:
     fig = go.Figure()
 
     if plot_type == "categorical_count":
-        fig.add_bar(x=data["categories"], y=data["counts"], marker_color="#165DFF")
+        fig.add_bar(x=data["categories"], y=data["counts"], marker_color="#4361ee")
         fig.update_layout(xaxis_title=data["column"], yaxis_title="Count")
 
     elif plot_type == "histogram":
@@ -220,7 +250,7 @@ def figure_from_payload(payload: dict[str, Any]) -> go.Figure:
             x=midpoints(data["bins"]),
             y=data["counts"],
             width=widths(data["bins"]),
-            marker_color="#2E8B57",
+            marker_color="#1a1a2e",
         )
         fig.update_layout(xaxis_title=data["column"], yaxis_title="Count")
 
@@ -309,7 +339,7 @@ def figure_from_payload(payload: dict[str, Any]) -> go.Figure:
                 y=fit["y_fit"],
                 mode="lines",
                 name=fit.get("fit_type", "Fit"),
-                line=dict(color="#E74C3C", width=3),
+                line=dict(color="#d62828", width=3),
             )
         fig.update_layout(
             xaxis_title=data["x"],
@@ -359,405 +389,409 @@ def figure_from_payload(payload: dict[str, Any]) -> go.Figure:
     else:
         return empty_figure(f"Unsupported plot type: {plot_type}")
 
-    fig.update_layout(
-        template="plotly_white",
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        margin=dict(t=60, r=20, b=50, l=50),
-        legend=dict(orientation="h"),
-    )
     return fig
 
 
+# ---------------------------------------------------------------------------
+# CSS — minimal overrides on top of the Lux Bootstrap theme
+# ---------------------------------------------------------------------------
 APP_CSS = """
-body { background: #f5f7fb; }
-.app-shell { max-width: 1450px; margin: 0 auto; }
-.hero {
-  padding: 24px 28px;
-  margin-bottom: 18px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
-  color: white;
-}
-.hero h1 { margin: 0 0 8px 0; }
-.hero p { margin: 0; opacity: 0.92; }
-.panel {
-  background: white;
-  border-radius: 16px;
-  padding: 18px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-  margin-bottom: 16px;
-}
-.messages { display: grid; gap: 8px; margin-bottom: 16px; }
-.message {
-  padding: 10px 12px;
-  border-radius: 10px;
-  font-size: 0.95rem;
-}
-.message-info { background: #e0f2fe; color: #075985; }
-.message-success { background: #dcfce7; color: #166534; }
-.message-warning { background: #fef3c7; color: #92400e; }
-.message-error { background: #fee2e2; color: #991b1b; }
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-.metric {
-  background: #eef2ff;
-  border-radius: 12px;
-  padding: 12px;
-}
-.metric .label { font-size: 0.78rem; color: #475569; text-transform: uppercase; }
-.metric .value { font-size: 1.2rem; font-weight: 700; color: #0f172a; }
-.small-note { color: #475569; font-size: 0.92rem; }
 .tip-box {
-  background: #fef3c7;
-  border-left: 4px solid #f59e0b;
-  border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 10px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-left: 4px solid #1a1a2e;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
   font-size: 0.93rem;
 }
+.small-note { color: #6c757d; font-size: 0.9rem; }
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+.metric {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 14px;
+  text-align: center;
+}
+.metric .label {
+  font-size: 0.72rem;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.metric .value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin-top: 2px;
+}
+.alert-stack { display: grid; gap: 6px; }
+.bslib-sidebar-layout > .sidebar { border-right: 1px solid #dee2e6 !important; }
+.card { transition: box-shadow 0.2s; }
+.card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
 """
 
 
-app_ui = ui.page_fluid(
-    ui.tags.style(APP_CSS),
-    ui.div(
-        {"class": "app-shell"},
-        ui.div(
-            {"class": "hero"},
-            ui.h1("STAT 5243 Project 2"),
-            ui.p(
-                "Single local Shiny for Python app. The UI calls EDA, cleaning, and "
-                "feature-engineering code directly from this repo with no Flask and no REST API."
+# ---------------------------------------------------------------------------
+# UI — Lux-themed page_navbar with cards, sidebars, tooltips
+# ---------------------------------------------------------------------------
+app_ui = ui.page_navbar(
+    # ── Guide Tab ──────────────────────────────────────────────────────────
+    ui.nav_panel(
+        "Guide",
+        ui.layout_columns(
+            ui.card(
+                ui.card_header(ui.strong("Welcome")),
+                ui.p(
+                    "This is an interactive data workbench built with Shiny for Python. "
+                    "It lets you load, clean, transform, and explore datasets entirely in "
+                    "the browser — no coding required. Every operation is backed by pure "
+                    "Python functions that run locally."
+                ),
+            ),
+            col_widths=[12],
+        ),
+        ui.card(
+            ui.card_header(ui.strong("Step-by-Step Walkthrough")),
+            ui.tags.ol(
+                ui.tags.li(
+                    ui.strong("Load a dataset "),
+                    "— Pick a built-in dataset (Iris or Sleep/Mobile/Stress) or upload "
+                    "your own CSV, Excel, or JSON file in the Load tab."
+                ),
+                ui.tags.li(
+                    ui.strong("Inspect the data "),
+                    "— The Load tab shows row/column counts, missing values, duplicates, "
+                    "and a full version history of every dataset you create."
+                ),
+                ui.tags.li(
+                    ui.strong("Clean and preprocess "),
+                    "— In the Cleaning tab, handle missing values, remove duplicates, "
+                    "scale numeric columns, encode categorical columns, or handle outliers. "
+                    "Always preview before applying."
+                ),
+                ui.tags.li(
+                    ui.strong("Engineer features "),
+                    "— The Feature Engineering tab offers 11 transforms: log, square, cube, "
+                    "interaction, ratio, binning, one-hot, standardize, normalize, fill NA, "
+                    "and drop NA. Each shows a before/after comparison chart."
+                ),
+                ui.tags.li(
+                    ui.strong("Explore with EDA "),
+                    "— View summary tables, filter with pandas query expressions, "
+                    "create 1D/2D plots, run regression analysis, plot multiline comparisons, "
+                    "and generate a full correlation heatmap."
+                ),
+                ui.tags.li(
+                    ui.strong("Download results "),
+                    "— Use the CSV download buttons on the Load, Cleaning, and Feature "
+                    "Engineering tabs to export your work."
+                ),
             ),
         ),
-        ui.output_ui("message_stack"),
-        ui.navset_tab(
-            ui.nav_panel(
-                "Guide",
-                ui.div(
-                    {"class": "panel"},
-                    ui.h3("Welcome"),
-                    ui.p(
-                        "This is an interactive data workbench built with Shiny for Python. "
-                        "It lets you load, clean, transform, and explore datasets entirely in "
-                        "the browser — no coding required. Every operation is backed by pure "
-                        "Python functions that run locally."
-                    ),
-                ),
-                ui.div(
-                    {"class": "panel"},
-                    ui.h3("Step-by-Step Walkthrough"),
-                    ui.tags.ol(
-                        ui.tags.li(
-                            ui.strong("Load a dataset "),
-                            "— Pick a built-in dataset (Iris or Sleep/Mobile/Stress) or upload "
-                            "your own CSV, Excel, or JSON file in the Load tab."
-                        ),
-                        ui.tags.li(
-                            ui.strong("Inspect the data "),
-                            "— The Load tab shows row/column counts, missing values, duplicates, "
-                            "and a full version history of every dataset you create."
-                        ),
-                        ui.tags.li(
-                            ui.strong("Clean and preprocess "),
-                            "— In the Cleaning tab, handle missing values, remove duplicates, "
-                            "scale numeric columns, encode categorical columns, or handle outliers. "
-                            "Always preview before applying."
-                        ),
-                        ui.tags.li(
-                            ui.strong("Engineer features "),
-                            "— The Feature Engineering tab offers 11 transforms: log, square, cube, "
-                            "interaction, ratio, binning, one-hot, standardize, normalize, fill NA, "
-                            "and drop NA. Each shows a before/after comparison chart."
-                        ),
-                        ui.tags.li(
-                            ui.strong("Explore with EDA "),
-                            "— View summary tables, filter with pandas query expressions, "
-                            "create 1D/2D plots, run regression analysis, plot multiline comparisons, "
-                            "and generate a full correlation heatmap."
-                        ),
-                        ui.tags.li(
-                            ui.strong("Download results "),
-                            "— Use the CSV download buttons on the Load, Cleaning, and Feature "
-                            "Engineering tabs to export your work."
-                        ),
-                    ),
-                ),
-                ui.div(
-                    {"class": "panel"},
-                    ui.h3("Tips"),
-                    ui.div(
-                        {"class": "tip-box"},
-                        ui.strong("Dataset Picker: "),
-                        "Use the dropdown in the Load tab to switch between any version you have "
-                        "created (original, cleaned, feature-engineered, filtered).",
-                    ),
-                    ui.div(
-                        {"class": "tip-box"},
-                        ui.strong("Filter Syntax: "),
-                        "Filtering uses pandas query expressions. Examples: ",
-                        ui.tags.code('age > 30 and gender == "Female"'),
-                        ", ",
-                        ui.tags.code("sepal_length > 5.0"),
-                        ".",
-                    ),
-                    ui.div(
-                        {"class": "tip-box"},
-                        ui.strong("Preview First: "),
-                        "Both Cleaning and Feature Engineering have a Preview button. "
-                        "Always preview before applying to make sure the result looks correct.",
-                    ),
-                ),
+        ui.card(
+            ui.card_header(ui.strong("Tips")),
+            ui.div(
+                {"class": "tip-box"},
+                ui.strong("Dataset Picker: "),
+                "Use the dropdown in the Load tab to switch between any version you have "
+                "created (original, cleaned, feature-engineered, filtered).",
             ),
-            ui.nav_panel(
-                "Load",
-                ui.row(
-                    ui.column(
-                        4,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Built-in Datasets"),
-                            ui.input_select(
-                                "builtin_dataset",
-                                "Choose built-in dataset",
-                                {
-                                    "sleep_health": "Sleep, Mobile and Stress",
-                                    "iris": "Iris",
-                                },
-                            ),
-                            ui.input_action_button("load_builtin_btn", "Load Built-in Dataset"),
-                        ),
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Upload Dataset"),
-                            ui.input_file(
-                                "upload_file",
-                                "Upload CSV, Excel, or JSON",
-                                accept=[".csv", ".xlsx", ".xls", ".json"],
-                            ),
-                            ui.input_action_button("load_upload_btn", "Load Uploaded File"),
-                        ),
+            ui.div(
+                {"class": "tip-box"},
+                ui.strong("Filter Syntax: "),
+                "Filtering uses pandas query expressions. Examples: ",
+                ui.tags.code('age > 30 and gender == "Female"'),
+                ", ",
+                ui.tags.code("sepal_length > 5.0"),
+                ".",
+            ),
+            ui.div(
+                {"class": "tip-box"},
+                ui.strong("Preview First: "),
+                "Both Cleaning and Feature Engineering have a Preview button. "
+                "Always preview before applying to make sure the result looks correct.",
+            ),
+        ),
+    ),
+    # ── Load Tab ───────────────────────────────────────────────────────────
+    ui.nav_panel(
+        "Load",
+        ui.layout_columns(
+            ui.layout_columns(
+                ui.card(
+                    ui.card_header(ui.strong("Built-in Datasets")),
+                    ui.input_select(
+                        "builtin_dataset",
+                        "Choose built-in dataset",
+                        {
+                            "sleep_health": "Sleep, Mobile and Stress",
+                            "iris": "Iris",
+                        },
                     ),
-                    ui.column(
-                        8,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Active Dataset"),
-                            ui.input_select("dataset_picker", "Active dataset version", {}),
-                            ui.output_ui("active_dataset_summary"),
-                            ui.download_button("download_active", "Download Active Dataset (CSV)"),
+                    ui.tooltip(
+                        ui.input_action_button(
+                            "load_builtin_btn", "Load Built-in Dataset",
+                            class_="btn-dark w-100",
                         ),
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Dataset History"),
-                            ui.output_data_frame("history_table"),
-                        ),
+                        "Load the selected built-in dataset into session memory",
                     ),
                 ),
-            ),
-            ui.nav_panel(
-                "Cleaning",
-                ui.row(
-                    ui.column(
-                        5,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Cleaning / Preprocessing"),
-                            ui.input_select(
-                                "clean_action",
-                                "Action",
-                                {
-                                    "handle_missing": "Handle missing values",
-                                    "remove_duplicates": "Remove duplicates",
-                                    "scale_columns": "Scale numeric columns",
-                                    "encode_columns": "Encode categorical columns",
-                                    "handle_outliers": "Handle outliers",
-                                },
-                            ),
-                            ui.input_selectize(
-                                "clean_columns",
-                                "Columns",
-                                [],
-                                multiple=True,
-                            ),
-                            ui.input_select("clean_single_column", "Single column", {}),
-                            ui.panel_conditional(
-                                "input.clean_action === 'handle_missing'",
-                                ui.input_select(
-                                    "clean_strategy",
-                                    "Missing-value strategy",
-                                    {
-                                        "drop_rows": "Drop rows",
-                                        "drop_cols": "Drop columns",
-                                        "mean": "Fill with mean",
-                                        "median": "Fill with median",
-                                        "mode": "Fill with mode",
-                                        "constant": "Fill with constant",
-                                    },
-                                ),
-                                ui.input_text("clean_constant_value", "Constant value", ""),
-                            ),
-                            ui.panel_conditional(
-                                "input.clean_action === 'scale_columns'",
-                                ui.input_select(
-                                    "clean_scale_method",
-                                    "Scaling method",
-                                    {
-                                        "standard": "Standard",
-                                        "minmax": "Min-Max",
-                                        "robust": "Robust",
-                                    },
-                                ),
-                            ),
-                            ui.panel_conditional(
-                                "input.clean_action === 'encode_columns'",
-                                ui.input_select(
-                                    "clean_encode_method",
-                                    "Encoding method",
-                                    {"label": "Label encode", "onehot": "One-hot encode"},
-                                ),
-                            ),
-                            ui.panel_conditional(
-                                "input.clean_action === 'handle_outliers'",
-                                ui.input_select(
-                                    "clean_outlier_action",
-                                    "Outlier action",
-                                    {"remove": "Remove rows", "cap": "Cap values"},
-                                ),
-                                ui.input_numeric("clean_iqr", "IQR multiplier", 1.5, min=0.5, step=0.5),
-                            ),
-                            ui.input_radio_buttons(
-                                "clean_save_mode",
-                                "Apply mode",
-                                {
-                                    "derived": "Save as derived version",
-                                    "current": "Apply to current version",
-                                },
-                                selected="derived",
-                                inline=False,
-                            ),
-                            ui.row(
-                                ui.column(6, ui.input_action_button("preview_clean_btn", "Preview Cleaning")),
-                                ui.column(6, ui.input_action_button("apply_clean_btn", "Apply Cleaning")),
-                            ),
-                            ui.output_ui("cleaning_result_summary"),
-                        ),
+                ui.card(
+                    ui.card_header(ui.strong("Upload Dataset")),
+                    ui.input_file(
+                        "upload_file",
+                        "Upload CSV, Excel, or JSON",
+                        accept=[".csv", ".xlsx", ".xls", ".json"],
                     ),
-                    ui.column(
-                        7,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Cleaning Preview"),
-                            ui.output_data_frame("cleaning_preview_table"),
-                            ui.download_button("download_cleaned", "Download Cleaned Preview (CSV)"),
+                    ui.tooltip(
+                        ui.input_action_button(
+                            "load_upload_btn", "Load Uploaded File",
+                            class_="btn-outline-dark w-100",
                         ),
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Before / After Comparison"),
-                            output_widget("plot_clean_comparison", height="300px"),
-                        ),
+                        "Parse and load the uploaded file",
                     ),
                 ),
+                col_widths=[12, 12],
             ),
-            ui.nav_panel(
-                "Feature Engineering",
-                ui.row(
-                    ui.column(
-                        5,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Feature Engineering"),
-                            ui.input_select(
-                                "feature_method",
-                                "Method",
-                                {
-                                    "log": "Log transform",
-                                    "square": "Square",
-                                    "cube": "Cube",
-                                    "interaction": "Interaction",
-                                    "ratio": "Ratio",
-                                    "binning": "Binning",
-                                    "one_hot": "One-hot encoding",
-                                    "standardize": "Standardize",
-                                    "normalize": "Normalize",
-                                    "fillna": "Fill missing values",
-                                    "dropna": "Drop missing rows",
-                                },
-                            ),
-                            ui.input_select("feature_col1", "Primary column", {}),
-                            ui.input_select("feature_col2", "Secondary column", {}),
-                            ui.input_text("feature_new_column", "New column name (optional)", ""),
-                            ui.panel_conditional(
-                                "input.feature_method === 'binning'",
-                                ui.input_numeric("feature_bins", "Number of bins", 4, min=2, step=1),
-                                ui.input_checkbox("feature_labels", "Use interval labels", False),
-                            ),
-                            ui.panel_conditional(
-                                "input.feature_method === 'one_hot'",
-                                ui.input_text("feature_prefix", "Dummy prefix (optional)", ""),
-                                ui.input_checkbox("feature_drop_first", "Drop first category", False),
-                            ),
-                            ui.panel_conditional(
-                                "input.feature_method === 'fillna'",
-                                ui.input_select(
-                                    "feature_fill_strategy",
-                                    "Fill strategy",
-                                    {
-                                        "mean": "Mean",
-                                        "median": "Median",
-                                        "mode": "Mode",
-                                        "constant": "Constant",
-                                    },
-                                ),
-                                ui.input_text("feature_fill_value", "Constant fill value", ""),
-                            ),
-                            ui.input_radio_buttons(
-                                "feature_save_mode",
-                                "Apply mode",
-                                {
-                                    "derived": "Save as derived version",
-                                    "current": "Apply to current version",
-                                },
-                                selected="derived",
-                            ),
-                            ui.row(
-                                ui.column(6, ui.input_action_button("preview_feature_btn", "Preview Feature")),
-                                ui.column(6, ui.input_action_button("apply_feature_btn", "Apply Feature")),
-                            ),
-                            ui.output_ui("feature_result_summary"),
-                        ),
+            ui.layout_columns(
+                ui.card(
+                    ui.card_header(ui.strong("Active Dataset")),
+                    ui.input_select("dataset_picker", "Active dataset version", {}),
+                    ui.output_ui("active_dataset_summary"),
+                    ui.download_button("download_active", "Download Active Dataset (CSV)",
+                                       class_="btn-outline-dark btn-sm mt-2"),
+                ),
+                ui.card(
+                    ui.card_header(ui.strong("Dataset History")),
+                    ui.output_data_frame("history_table"),
+                    full_screen=True,
+                ),
+                col_widths=[12, 12],
+            ),
+            col_widths=[4, 8],
+        ),
+    ),
+    # ── Cleaning Tab ───────────────────────────────────────────────────────
+    ui.nav_panel(
+        "Cleaning",
+        ui.layout_sidebar(
+            ui.sidebar(
+                ui.h6("Cleaning / Preprocessing", class_="text-uppercase fw-bold"),
+                ui.hr(),
+                ui.input_select(
+                    "clean_action",
+                    "Action",
+                    {
+                        "handle_missing": "Handle missing values",
+                        "remove_duplicates": "Remove duplicates",
+                        "scale_columns": "Scale numeric columns",
+                        "encode_columns": "Encode categorical columns",
+                        "handle_outliers": "Handle outliers",
+                    },
+                ),
+                ui.input_selectize(
+                    "clean_columns",
+                    "Columns",
+                    [],
+                    multiple=True,
+                ),
+                ui.input_select("clean_single_column", "Single column", {}),
+                ui.panel_conditional(
+                    "input.clean_action === 'handle_missing'",
+                    ui.input_select(
+                        "clean_strategy",
+                        "Missing-value strategy",
+                        {
+                            "drop_rows": "Drop rows",
+                            "drop_cols": "Drop columns",
+                            "mean": "Fill with mean",
+                            "median": "Fill with median",
+                            "mode": "Fill with mode",
+                            "constant": "Fill with constant",
+                        },
                     ),
-                    ui.column(
-                        7,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Feature Preview"),
-                            ui.output_data_frame("feature_preview_table"),
-                            ui.download_button("download_featured", "Download Feature Preview (CSV)"),
-                        ),
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Before / After Comparison"),
-                            output_widget("plot_feature_comparison", height="300px"),
-                        ),
+                    ui.input_text("clean_constant_value", "Constant value", ""),
+                ),
+                ui.panel_conditional(
+                    "input.clean_action === 'scale_columns'",
+                    ui.input_select(
+                        "clean_scale_method",
+                        "Scaling method",
+                        {
+                            "standard": "Standard",
+                            "minmax": "Min-Max",
+                            "robust": "Robust",
+                        },
                     ),
                 ),
+                ui.panel_conditional(
+                    "input.clean_action === 'encode_columns'",
+                    ui.input_select(
+                        "clean_encode_method",
+                        "Encoding method",
+                        {"label": "Label encode", "onehot": "One-hot encode"},
+                    ),
+                ),
+                ui.panel_conditional(
+                    "input.clean_action === 'handle_outliers'",
+                    ui.input_select(
+                        "clean_outlier_action",
+                        "Outlier action",
+                        {"remove": "Remove rows", "cap": "Cap values"},
+                    ),
+                    ui.input_numeric("clean_iqr", "IQR multiplier", 1.5, min=0.5, step=0.5),
+                ),
+                ui.input_radio_buttons(
+                    "clean_save_mode",
+                    "Apply mode",
+                    {
+                        "derived": "Save as derived version",
+                        "current": "Apply to current version",
+                    },
+                    selected="derived",
+                    inline=False,
+                ),
+                ui.hr(),
+                ui.layout_columns(
+                    ui.tooltip(
+                        ui.input_action_button("preview_clean_btn", "Preview",
+                                               class_="btn-outline-dark w-100"),
+                        "Preview the result without changing the active dataset",
+                    ),
+                    ui.tooltip(
+                        ui.input_action_button("apply_clean_btn", "Apply",
+                                               class_="btn-dark w-100"),
+                        "Apply transformation and save the result",
+                    ),
+                    col_widths=[6, 6],
+                ),
+                ui.output_ui("cleaning_result_summary"),
+                width="380px",
             ),
-            ui.nav_panel(
-                "EDA",
+            ui.card(
+                ui.card_header(ui.strong("Cleaning Preview")),
+                ui.output_data_frame("cleaning_preview_table"),
+                ui.download_button("download_cleaned", "Download Cleaned Preview (CSV)",
+                                   class_="btn-outline-dark btn-sm mt-2"),
+                full_screen=True,
+            ),
+            ui.card(
+                ui.card_header(ui.strong("Before / After Comparison")),
+                output_widget("plot_clean_comparison", height="300px"),
+            ),
+        ),
+    ),
+    # ── Feature Engineering Tab ────────────────────────────────────────────
+    ui.nav_panel(
+        "Feature Engineering",
+        ui.layout_sidebar(
+            ui.sidebar(
+                ui.h6("Feature Engineering", class_="text-uppercase fw-bold"),
+                ui.hr(),
+                ui.input_select(
+                    "feature_method",
+                    "Method",
+                    {
+                        "log": "Log transform",
+                        "square": "Square",
+                        "cube": "Cube",
+                        "interaction": "Interaction",
+                        "ratio": "Ratio",
+                        "binning": "Binning",
+                        "one_hot": "One-hot encoding",
+                        "standardize": "Standardize",
+                        "normalize": "Normalize",
+                        "fillna": "Fill missing values",
+                        "dropna": "Drop missing rows",
+                    },
+                ),
+                ui.input_select("feature_col1", "Primary column", {}),
+                ui.input_select("feature_col2", "Secondary column", {}),
+                ui.input_text("feature_new_column", "New column name (optional)", ""),
+                ui.panel_conditional(
+                    "input.feature_method === 'binning'",
+                    ui.input_numeric("feature_bins", "Number of bins", 4, min=2, step=1),
+                    ui.input_checkbox("feature_labels", "Use interval labels", False),
+                ),
+                ui.panel_conditional(
+                    "input.feature_method === 'one_hot'",
+                    ui.input_text("feature_prefix", "Dummy prefix (optional)", ""),
+                    ui.input_checkbox("feature_drop_first", "Drop first category", False),
+                ),
+                ui.panel_conditional(
+                    "input.feature_method === 'fillna'",
+                    ui.input_select(
+                        "feature_fill_strategy",
+                        "Fill strategy",
+                        {
+                            "mean": "Mean",
+                            "median": "Median",
+                            "mode": "Mode",
+                            "constant": "Constant",
+                        },
+                    ),
+                    ui.input_text("feature_fill_value", "Constant fill value", ""),
+                ),
+                ui.input_radio_buttons(
+                    "feature_save_mode",
+                    "Apply mode",
+                    {
+                        "derived": "Save as derived version",
+                        "current": "Apply to current version",
+                    },
+                    selected="derived",
+                ),
+                ui.hr(),
+                ui.layout_columns(
+                    ui.tooltip(
+                        ui.input_action_button("preview_feature_btn", "Preview",
+                                               class_="btn-outline-dark w-100"),
+                        "Preview the transformation without saving",
+                    ),
+                    ui.tooltip(
+                        ui.input_action_button("apply_feature_btn", "Apply",
+                                               class_="btn-dark w-100"),
+                        "Apply transformation and save the result",
+                    ),
+                    col_widths=[6, 6],
+                ),
+                ui.output_ui("feature_result_summary"),
+                width="380px",
+            ),
+            ui.card(
+                ui.card_header(ui.strong("Feature Preview")),
+                ui.output_data_frame("feature_preview_table"),
+                ui.download_button("download_featured", "Download Feature Preview (CSV)",
+                                   class_="btn-outline-dark btn-sm mt-2"),
+                full_screen=True,
+            ),
+            ui.card(
+                ui.card_header(ui.strong("Before / After Comparison")),
+                output_widget("plot_feature_comparison", height="300px"),
+            ),
+        ),
+    ),
+    # ── EDA Tab ────────────────────────────────────────────────────────────
+    ui.nav_panel(
+        "EDA",
+        # Filtering
+        ui.card(
+            ui.card_header(ui.strong("Filtering")),
+            ui.layout_columns(
+                ui.input_text_area(
+                    "filter_expr",
+                    "Pandas query expression",
+                    placeholder='Example: age > 30 and gender == "Female"',
+                    rows=2,
+                ),
                 ui.div(
-                    {"class": "panel"},
-                    ui.h3("Filtering"),
-                    ui.input_text_area(
-                        "filter_expr",
-                        "Pandas query expression",
-                        placeholder='Example: age > 30 and gender == "Female"',
-                        rows=3,
-                    ),
                     ui.input_radio_buttons(
                         "filter_save_mode",
                         "Filter mode",
@@ -766,124 +800,139 @@ app_ui = ui.page_fluid(
                             "current": "Replace current version",
                         },
                         selected="derived",
+                        inline=True,
                     ),
-                    ui.input_action_button("apply_filter_btn", "Apply Filter"),
+                    ui.input_action_button("apply_filter_btn", "Apply Filter",
+                                           class_="btn-dark"),
                 ),
-                ui.row(
-                    ui.column(
-                        4,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Summary Tables"),
-                            ui.input_numeric("head_rows", "Head rows", 8, min=1, max=50, step=1),
-                            ui.output_data_frame("head_table"),
-                        ),
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Column Types"),
-                            ui.output_data_frame("column_types_table"),
-                        ),
-                    ),
-                    ui.column(
-                        8,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Describe"),
-                            ui.output_data_frame("describe_table"),
-                        ),
-                    ),
-                ),
-                ui.row(
-                    ui.column(
-                        6,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("1D Plot"),
-                            ui.input_select("plot1d_column", "Column", {}),
-                            ui.input_numeric("plot1d_bins", "Bins for numeric histogram", 30, min=5, max=100),
-                            ui.input_checkbox("plot1d_normalize", "Normalize counts", False),
-                            ui.input_action_button("render_1d_btn", "Render 1D Plot"),
-                            output_widget("plot_1d", height="360px"),
-                        ),
-                    ),
-                    ui.column(
-                        6,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("2D Plot"),
-                            ui.input_select("plot2d_x", "X column", {}),
-                            ui.input_select("plot2d_y", "Y column", {}),
-                            ui.input_select("plot2d_hue", "Hue (optional)", {"": "None"}),
-                            ui.input_select(
-                                "plot2d_kind",
-                                "2D plot kind",
-                                {
-                                    "auto": "Auto",
-                                    "hist": "2D histogram",
-                                    "scatter": "Scatter",
-                                    "line": "Line",
-                                    "bar": "Bar",
-                                    "box": "Box",
-                                    "heatmap": "Heatmap",
-                                },
-                            ),
-                            ui.input_action_button("render_2d_btn", "Render 2D Plot"),
-                            output_widget("plot_2d", height="360px"),
-                        ),
-                    ),
-                ),
-                ui.row(
-                    ui.column(
-                        6,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Regression"),
-                            ui.input_select("regression_x", "X column", {}),
-                            ui.input_select("regression_y", "Y column", {}),
-                            ui.input_numeric("regression_order", "Polynomial order", 1, min=1, max=5),
-                            ui.input_checkbox("regression_logx", "Log-scale x", False),
-                            ui.input_checkbox("regression_robust", "Robust fit", False),
-                            ui.input_checkbox("regression_lowess", "LOWESS fit", False),
-                            ui.input_action_button("render_regression_btn", "Render Regression"),
-                            output_widget("plot_regression", height="360px"),
-                        ),
-                    ),
-                    ui.column(
-                        6,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Multiline"),
-                            ui.input_select("multiline_value", "Value column", {}),
-                            ui.input_select("multiline_group", "Group by", {}),
-                            ui.input_numeric("multiline_bins", "Histogram bins", 20, min=5, max=80),
-                            ui.input_checkbox("multiline_normalize", "Normalize counts", False),
-                            ui.input_action_button("render_multiline_btn", "Render Multiline"),
-                            output_widget("plot_multiline", height="360px"),
-                        ),
-                    ),
-                ),
-                ui.row(
-                    ui.column(
-                        12,
-                        ui.div(
-                            {"class": "panel"},
-                            ui.h3("Correlation Matrix"),
-                            ui.input_select(
-                                "corr_method",
-                                "Method",
-                                {"pearson": "Pearson", "spearman": "Spearman", "kendall": "Kendall"},
-                            ),
-                            ui.input_action_button("render_corr_btn", "Render Correlation Matrix"),
-                            output_widget("plot_correlation", height="500px"),
-                        ),
-                    ),
-                ),
+                col_widths=[8, 4],
             ),
         ),
+        # Summary tables
+        ui.layout_columns(
+            ui.card(
+                ui.card_header(ui.strong("Data Preview")),
+                ui.input_numeric("head_rows", "Rows", 8, min=1, max=50, step=1),
+                ui.output_data_frame("head_table"),
+                full_screen=True,
+            ),
+            ui.card(
+                ui.card_header(ui.strong("Describe")),
+                ui.output_data_frame("describe_table"),
+                full_screen=True,
+            ),
+            col_widths=[5, 7],
+        ),
+        ui.card(
+            ui.card_header(ui.strong("Column Types")),
+            ui.output_data_frame("column_types_table"),
+            full_screen=True,
+        ),
+        # 1D and 2D plots
+        ui.layout_columns(
+            ui.card(
+                ui.card_header(ui.strong("1D Plot")),
+                ui.input_select("plot1d_column", "Column", {}),
+                ui.input_numeric("plot1d_bins", "Bins for numeric histogram", 30, min=5, max=100),
+                ui.input_checkbox("plot1d_normalize", "Normalize counts", False),
+                ui.input_action_button("render_1d_btn", "Render 1D Plot",
+                                       class_="btn-dark btn-sm"),
+                output_widget("plot_1d", height="380px"),
+                full_screen=True,
+            ),
+            ui.card(
+                ui.card_header(ui.strong("2D Plot")),
+                ui.input_select("plot2d_x", "X column", {}),
+                ui.input_select("plot2d_y", "Y column", {}),
+                ui.input_select("plot2d_hue", "Hue (optional)", {"": "None"}),
+                ui.input_select(
+                    "plot2d_kind",
+                    "2D plot kind",
+                    {
+                        "auto": "Auto",
+                        "hist": "2D histogram",
+                        "scatter": "Scatter",
+                        "line": "Line",
+                        "bar": "Bar",
+                        "box": "Box",
+                        "heatmap": "Heatmap",
+                    },
+                ),
+                ui.input_action_button("render_2d_btn", "Render 2D Plot",
+                                       class_="btn-dark btn-sm"),
+                output_widget("plot_2d", height="380px"),
+                full_screen=True,
+            ),
+            col_widths=[6, 6],
+        ),
+        # Regression and Multiline
+        ui.layout_columns(
+            ui.card(
+                ui.card_header(ui.strong("Regression")),
+                ui.layout_columns(
+                    ui.input_select("regression_x", "X column", {}),
+                    ui.input_select("regression_y", "Y column", {}),
+                    col_widths=[6, 6],
+                ),
+                ui.layout_columns(
+                    ui.input_numeric("regression_order", "Polynomial order", 1, min=1, max=5),
+                    ui.div(
+                        ui.input_checkbox("regression_logx", "Log-scale x", False),
+                        ui.input_checkbox("regression_robust", "Robust fit", False),
+                        ui.input_checkbox("regression_lowess", "LOWESS fit", False),
+                    ),
+                    col_widths=[6, 6],
+                ),
+                ui.input_action_button("render_regression_btn", "Render Regression",
+                                       class_="btn-dark btn-sm"),
+                output_widget("plot_regression", height="380px"),
+                full_screen=True,
+            ),
+            ui.card(
+                ui.card_header(ui.strong("Multiline")),
+                ui.input_select("multiline_value", "Value column", {}),
+                ui.input_select("multiline_group", "Group by", {}),
+                ui.input_numeric("multiline_bins", "Histogram bins", 20, min=5, max=80),
+                ui.input_checkbox("multiline_normalize", "Normalize counts", False),
+                ui.input_action_button("render_multiline_btn", "Render Multiline",
+                                       class_="btn-dark btn-sm"),
+                output_widget("plot_multiline", height="380px"),
+                full_screen=True,
+            ),
+            col_widths=[6, 6],
+        ),
+        # Correlation
+        ui.card(
+            ui.card_header(ui.strong("Correlation Matrix")),
+            ui.layout_columns(
+                ui.input_select(
+                    "corr_method",
+                    "Method",
+                    {"pearson": "Pearson", "spearman": "Spearman", "kendall": "Kendall"},
+                ),
+                ui.input_action_button("render_corr_btn", "Render Correlation Matrix",
+                                       class_="btn-dark btn-sm"),
+                col_widths=[4, 4],
+            ),
+            output_widget("plot_correlation", height="520px"),
+            full_screen=True,
+        ),
+    ),
+    # ── Navbar configuration ───────────────────────────────────────────────
+    title=ui.tags.span("STAT 5243 Data Workbench", style="font-weight:800; letter-spacing:0.5px;"),
+    id="main_nav",
+    theme=shinyswatch.theme.lux,
+    fillable=False,
+    header=ui.div(
+        ui.tags.style(APP_CSS),
+        ui.output_ui("message_stack"),
     ),
 )
 
 
+# ---------------------------------------------------------------------------
+# Server — ALL logic unchanged, only render.ui presentation updated
+# ---------------------------------------------------------------------------
 def server(input, output, session):
     datasets_state = reactive.value(OrderedDict())
     active_key_state = reactive.value(None)
@@ -1383,16 +1432,28 @@ def server(input, output, session):
         if not df.empty:
             yield df.to_csv(index=False)
 
+    # ── Render outputs ─────────────────────────────────────────────────────
+
     @output
     @render.ui
     def message_stack():
         messages = messages_state.get()
         if not messages:
             return ui.div()
+        _level_map = {
+            "info": "alert-info",
+            "success": "alert-success",
+            "warning": "alert-warning",
+            "error": "alert-danger",
+        }
         return ui.div(
-            {"class": "messages"},
+            {"class": "alert-stack", "style": "padding: 0 12px;"},
             *[
-                ui.div({"class": f"message message-{item['level']}"}, item["text"])
+                ui.div(
+                    {"class": f"alert {_level_map.get(item['level'], 'alert-secondary')} py-2 mb-1",
+                     "role": "alert"},
+                    item["text"],
+                )
                 for item in messages
             ],
         )
