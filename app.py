@@ -886,9 +886,12 @@ app_ui = ui.page_navbar(
                 ui.input_select("plot1d_column", "Column", {}),
                 ui.input_numeric("plot1d_bins", "Bins for numeric histogram", 30, min=5, max=100),
                 ui.input_checkbox("plot1d_normalize", "Normalize counts", False),
+                ui.input_checkbox("plot1d_logx", "Log-scale X", False),
+                ui.input_checkbox("plot1d_logy", "Log-scale Y", False),
                 ui.input_action_button("render_1d_btn", "Render 1D Plot",
                                        class_="btn-dark btn-sm"),
                 output_widget("plot_1d", height="380px"),
+                ui.output_ui("plot1d_stats"),
                 full_screen=True,
             ),
             ui.card(
@@ -909,6 +912,8 @@ app_ui = ui.page_navbar(
                         "heatmap": "Heatmap",
                     },
                 ),
+                ui.input_checkbox("plot2d_logx", "Log-scale X", False),
+                ui.input_checkbox("plot2d_logy", "Log-scale Y", False),
                 ui.input_action_button("render_2d_btn", "Render 2D Plot",
                                        class_="btn-dark btn-sm"),
                 output_widget("plot_2d", height="380px"),
@@ -996,6 +1001,7 @@ def server(input, output, session):
     feature_preview_meta = reactive.value("")
 
     plot1d_payload = reactive.value(None)
+    plot1d_stats_text = reactive.value("")
     plot2d_payload = reactive.value(None)
     regression_payload = reactive.value(None)
     multiline_payload = reactive.value(None)
@@ -1081,9 +1087,10 @@ def server(input, output, session):
         ui.update_select("feature_col1", choices={col: col for col in all_cols}, session=session)
         ui.update_select("feature_col2", choices={"": "None", **{col: col for col in all_cols}}, selected="", session=session)
         ui.update_select("plot1d_column", choices={col: col for col in all_cols}, session=session)
-        ui.update_select("plot2d_x", choices={col: col for col in all_cols}, session=session)
-        ui.update_select("plot2d_y", choices={col: col for col in all_cols}, session=session)
-        ui.update_select("plot2d_hue", choices={"": "None", **{col: col for col in all_cols}}, selected="", session=session)
+        typed_cols = {col: f"{col} (num)" if col in numeric_cols else f"{col} (cat)" for col in all_cols}
+        ui.update_select("plot2d_x", choices=typed_cols, session=session)
+        ui.update_select("plot2d_y", choices=typed_cols, session=session)
+        ui.update_select("plot2d_hue", choices={"": "None", **typed_cols}, selected="", session=session)
         ui.update_select("regression_x", choices={col: col for col in numeric_cols}, session=session)
         ui.update_select("regression_y", choices={col: col for col in numeric_cols}, session=session)
         ui.update_select("multiline_value", choices={col: col for col in numeric_cols}, session=session)
@@ -1463,10 +1470,17 @@ def server(input, output, session):
                 push_message("success", "1D plot rendered.")
                 col_data = df[column].dropna()
                 if pd.api.types.is_numeric_dtype(col_data):
-                    stats_msg = (f"Stats for {column}: mean={col_data.mean():.3f}, "
-                                 f"median={col_data.median():.3f}, std={col_data.std():.3f}, "
-                                 f"skew={col_data.skew():.3f}")
-                    push_message("info", stats_msg)
+                    plot1d_stats_text.set(
+                        f"n={len(col_data):,}  |  mean={col_data.mean():.3f}  |  "
+                        f"median={col_data.median():.3f}  |  std={col_data.std():.3f}  |  "
+                        f"skew={col_data.skew():.3f}  |  kurtosis={col_data.kurtosis():.3f}"
+                    )
+                else:
+                    vc = col_data.value_counts()
+                    plot1d_stats_text.set(
+                        f"n={len(col_data):,}  |  unique={vc.shape[0]}  |  "
+                        f"top='{vc.index[0]}' ({vc.iloc[0]:,})"
+                    )
         except Exception as exc:
             push_message("error", f"1D plot failed: {exc}")
 
@@ -1527,7 +1541,9 @@ def server(input, output, session):
                 common = df[[input.regression_x(), input.regression_y()]].dropna()
                 if len(common) > 2:
                     r, p = pearsonr(common.iloc[:, 0], common.iloc[:, 1])
-                    push_message("info", f"Pearson r = {r:.4f}, p-value = {p:.2e} (n={len(common)})")
+                    push_message("info",
+                        f"Pearson r = {r:.4f}, R\u00b2 = {r**2:.4f}, "
+                        f"p-value = {p:.2e} (n={len(common)})")
         except Exception as exc:
             push_message("error", f"Regression failed: {exc}")
 
@@ -1721,7 +1737,20 @@ def server(input, output, session):
         payload = plot1d_payload.get()
         if payload is None:
             return empty_figure("Render a 1D plot to see output here.")
-        return figure_from_payload(payload)
+        fig = figure_from_payload(payload)
+        if input.plot1d_logx():
+            fig.update_xaxes(type="log")
+        if input.plot1d_logy():
+            fig.update_yaxes(type="log")
+        return fig
+
+    @output
+    @render.ui
+    def plot1d_stats():
+        text = plot1d_stats_text.get()
+        if not text:
+            return ui.div()
+        return ui.div({"class": "small-note", "style": "margin-top:6px;"}, text)
 
     @output
     @render_plotly
@@ -1729,7 +1758,12 @@ def server(input, output, session):
         payload = plot2d_payload.get()
         if payload is None:
             return empty_figure("Render a 2D plot to see output here.")
-        return figure_from_payload(payload)
+        fig = figure_from_payload(payload)
+        if input.plot2d_logx():
+            fig.update_xaxes(type="log")
+        if input.plot2d_logy():
+            fig.update_yaxes(type="log")
+        return fig
 
     @output
     @render_plotly
