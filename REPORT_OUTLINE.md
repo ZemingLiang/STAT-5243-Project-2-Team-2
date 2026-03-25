@@ -2,51 +2,57 @@
 
 ## 1. Overview and Deployment
 
-Our application is an interactive data workbench built with **Shiny for Python**. It allows users to load, clean, transform, and explore tabular datasets entirely in the browser without writing any code. The app is organized into five tabs — **Guide**, **Load**, **Cleaning**, **Feature Engineering**, and **EDA** — accessible from a persistent top navigation bar. All computation runs locally via pure Python module imports; there is no REST API or external backend.
+Our application is an interactive data workbench built with **Shiny for Python**. It lets users load, clean, transform, and explore tabular datasets entirely in the browser — no coding required. The interface is organized into five tabs (**Guide**, **Load**, **Cleaning**, **Feature Engineering**, **EDA**) accessible from a dark top navigation bar styled with the elegant Lux Bootstrap theme. All computation runs locally; there is no REST API or external backend, so user data never leaves the machine.
 
 **Deployed application:** [Deployment Link: _to be added upon deployment_]
 
 **To run locally:** `pip install -r requirements.txt` then `shiny run app.py` and open http://127.0.0.1:8000.
 
-The app accepts uploads in **CSV, Excel (.xlsx/.xls), JSON, and RDS** formats and ships with three built-in demonstration datasets: **Sleep/Mobile/Stress** (15,000 rows, 13 columns), **Iris** (150 rows, 5 columns), and **Tips** (244 rows, 7 columns).
+The app accepts **CSV, Excel (.xlsx/.xls), JSON, and RDS** uploads (with robust error messages for corrupt or unsupported files) and includes three built-in datasets: **Sleep, Mobile and Stress** (15,000 rows of health survey data), **Iris** (150 rows of flower measurements), and **Tips** (244 rows of restaurant tipping data). These span a range of sizes and column types so every feature can be demonstrated out of the box.
 
-## 2. App Functionalities
+## 2. Functionalities
 
-**Data Loading.** In the **Load** tab, users choose a built-in dataset from the dropdown or click the file-upload widget to select a local file. After clicking "Load," the app displays a summary card showing row count, column count, missing-value count, and duplicate-row count. Every dataset loaded or derived is tracked in an in-memory **version history** table visible at the bottom of the tab, so users can switch between any previous version using the dataset picker dropdown.
+**Data Loading and Version History.** Users load data in the **Load** tab by selecting a built-in dataset or uploading a file. The app immediately displays a summary card with row count, column count, missing-value count, and duplicate-row count. Every dataset loaded or derived from a cleaning/engineering step is saved in an **in-memory version history** (visible as a table below the summary card), so users can switch back to any previous version at any time using the dataset-picker dropdown.
 
-**Data Cleaning and Preprocessing.** The **Cleaning** tab presents a sidebar with seven operations: handle missing values (six strategies including mean, median, mode, and constant fill), remove duplicates (with a dedicated panel showing which rows are duplicated), scale numeric columns (standard, min-max, or robust), encode categorical columns (label or one-hot), detect and handle outliers (IQR-based removal or capping with a configurable multiplier), standardize text (whitespace stripping and case normalization), and coerce column types (convert strings to numbers or vice versa). Users first click **Preview** to inspect a before/after comparison chart and preview table, then click **Apply** only when satisfied. The column selector automatically filters to show only relevant column types for each operation (e.g., numeric columns for scaling, categorical columns for encoding).
+**Data Cleaning and Preprocessing.** The **Cleaning** tab uses a sidebar layout: controls on the left, results on the right. Seven operations are available — handle missing values (six strategies: drop rows, drop columns, fill with mean, median, mode, or a constant), inspect and remove duplicates, scale numeric columns (standard, min-max, or robust scaling), encode categorical columns (label or one-hot), detect and handle outliers (statistical fence method with adjustable sensitivity — 1.5 for mild outliers, 3.0 for extreme), standardize text (trim whitespace and normalize letter case), and coerce column types. The column selector **automatically filters** to show only the relevant type for each operation (e.g., only numeric columns appear when scaling is selected). Users always click **Preview** first to see a before/after comparison chart and data table, then **Apply** to commit. Every control has a tooltip explaining what it does.
 
-**Feature Engineering.** The **Feature Engineering** tab offers eleven column-level transforms: log, square, cube, interaction, ratio, binning, one-hot encoding, standardize, normalize, fill NA, and drop NA. When a method is selected, a contextual explanation appears below the dropdown describing what the transform does and when to use it. After clicking **Preview**, the app displays the applied formula (e.g., `log_age = log1p(age)`), before/after summary statistics (mean and standard deviation), and a side-by-side distribution comparison chart. Users can customize the output column name and adjust method-specific parameters (bin count, fill strategy, drop-first flag, etc.).
+**Feature Engineering.** The **Feature Engineering** tab offers eleven transforms: log, square, cube, interaction (multiply two columns), ratio (divide with zero-denominator protection), binning, one-hot encoding, standardize (z-score), normalize (0-1 scale), fill missing values, and drop missing rows. When a method is selected, an **explanation panel** appears describing the transform in plain English (e.g., "Applies log(1+x). Reduces right-skew and compresses large values."). After clicking **Preview**, the app shows the applied formula (e.g., `log_age = log1p(age)`), before/after summary statistics (mean and standard deviation), and a side-by-side distribution chart. A high-cardinality guard warns if one-hot encoding would create more than 50 columns.
 
-**Exploratory Data Analysis.** The **EDA** tab provides summary tables (head preview with adjustable row count, descriptive statistics, and column-type inventory), a free-text pandas query filter, and five interactive visualization panels: **1D plots** (histograms or categorical bar charts with log-scale and normalization toggles), **2D plots** (scatter, line, bar, box, heatmap, or 2D histogram with optional color grouping and log-scale axes), **regression analysis** (polynomial fit up to order 5, robust regression, or LOWESS smoothing, annotated with Pearson r, R-squared, and p-value), **multiline grouped plots**, and a **correlation matrix heatmap** (Pearson, Spearman, or Kendall). All plots are rendered with Plotly and support interactive zoom, pan, and hover tooltips. A persistent statistics panel below the 1D plot displays mean, median, standard deviation, skewness, and kurtosis.
+**Exploratory Data Analysis.** The **EDA** tab provides summary tables (data preview with adjustable row count, descriptive statistics, column types), a free-text query filter (e.g., `age > 30 and gender == "Female"`), and five visualization panels — all rendered with Plotly for interactive zoom, pan, and hover:
 
-**Export.** CSV download buttons appear on the Load, Cleaning, and Feature Engineering tabs so users can export the active dataset or any preview result at any stage.
+- **1D plots** — histograms or bar charts with log-scale and normalization toggles, plus a persistent statistics panel showing mean, median, standard deviation, skewness, and kurtosis.
+- **2D plots** — scatter, line, bar, box, heatmap, or 2D histogram. Column dropdowns show type labels like `age (num)` and `gender (cat)` to guide valid selections.
+- **Regression** — polynomial fit (order 1 to 5), robust regression, or LOWESS (a smooth non-parametric curve). The plot displays **Pearson r, R-squared, and p-value** directly on the figure.
+- **Multiline plots** — grouped distributions with shared bin edges for direct comparison.
+- **Correlation matrix** — heatmap of pairwise correlations using Pearson, Spearman (rank-based), or Kendall (concordance-based) methods.
+
+**Export.** CSV download buttons on the Load, Cleaning, and Feature Engineering tabs let users save the active dataset or any preview result at any stage.
 
 ## 3. How to Use the App
 
-1. **Load a dataset.** Open the app and navigate to the **Load** tab (second tab in the top navbar). Either select a built-in dataset from the "Choose built-in dataset" dropdown and click **Load Built-in Dataset**, or click the file-upload area labeled "Upload CSV, Excel, JSON, or RDS," browse for your file, then click **Load Uploaded File**. The summary card on the right will populate with dataset statistics.
+1. **Load a dataset.** Click the **Load** tab in the top navbar. Select a built-in dataset from the dropdown and click **Load Built-in Dataset**, or click the upload area, browse for your file, and click **Load Uploaded File**. The right-hand summary card will display row count, column count, missing values, and duplicates.
 
-2. **Inspect and understand your data.** Scroll down in the Load tab to review the **Dataset History** table, which tracks every version of your data. Switch to the **EDA** tab and review the **Data Preview** card (first N rows), the **Describe** card (summary statistics), and the **Column Types** card to understand what you are working with.
+2. **Inspect your data.** Below the summary card, the **Dataset History** table shows every version you have created. Switch to the **EDA** tab to see the first rows (**Data Preview** card — adjust the row count with the numeric input), full descriptive statistics (**Describe** card), and a column-type breakdown (**Column Types** card).
 
-3. **Clean and preprocess.** Navigate to the **Cleaning** tab. In the left sidebar, select an operation from the "Action" dropdown (e.g., "Handle missing values"). The column selector will automatically show only the relevant columns. Configure parameters (e.g., choose "Fill with mean" as the strategy), then click **Preview**. Examine the before/after chart on the right. If the result looks correct, click **Apply**; otherwise, adjust and preview again.
+3. **Clean and preprocess.** In the **Cleaning** tab sidebar, choose an operation from the **Action** dropdown (e.g., "Scale numeric columns"). The column list updates to show only relevant columns. Configure parameters (e.g., select "Robust" scaling), then click **Preview**. A before/after distribution chart appears on the right alongside a preview table. Click **Apply** to commit, or adjust and preview again. You can chain multiple operations — each creates a new version in the history.
 
-4. **Engineer features.** Navigate to the **Feature Engineering** tab. Select a transform (e.g., "Log transform") from the "Method" dropdown and read the explanation that appears. Choose a primary column, optionally set a custom output column name, then click **Preview**. Review the formula, before/after statistics, and comparison chart. Click **Apply** to add the new column to your working dataset.
+4. **Engineer features.** In the **Feature Engineering** tab, select a method (e.g., "Log transform"), read the explanation that appears, and choose a primary column. Optionally set a custom output name (default: `log_age`). Click **Preview** to see the formula, before/after statistics, and comparison chart. Click **Apply** to add the column to your dataset.
 
-5. **Explore with EDA.** In the **EDA** tab, use the filter text box to subset your data (e.g., `age > 30 and gender == "Female"`). Then render plots: select a column for the 1D panel and click **Render 1D Plot**; choose X, Y, and optional hue columns for the 2D panel and click **Render 2D Plot**. For trend analysis, use the Regression panel with polynomial order and fit-method toggles. Generate a correlation heatmap from the bottom panel.
+5. **Explore with EDA.** In the **EDA** tab, type a filter expression in the query box (e.g., `stress_level > 7`) and click **Apply Filter**. Then render plots: pick a column and click **Render 1D Plot** to see its distribution with live statistics, or choose X and Y columns for a 2D plot. Use the **Regression** panel to fit a trend line and see R-squared. Generate a **Correlation Matrix** heatmap from the bottom panel to identify the strongest variable relationships.
 
-6. **Download results.** At any point, click the **Download CSV** button on the Load, Cleaning, or Feature Engineering tab to save your current dataset or preview to a local CSV file.
+6. **Download results.** Click any **Download CSV** button (on Load, Cleaning, or Feature Engineering tabs) to export your current dataset or preview to a local file.
 
 ## 4. Team Contributions
 
 | Team Member    | Contribution |
 |----------------|-------------|
-| Cecilia Zang   | Data cleaning and preprocessing backend (`p2_divided.py`): missing-value handling, duplicate detection, scaling, encoding, outlier handling, text standardization, type coercion |
-| Baixuan Chen   | Feature engineering backend (`feature_engineering.py`): 11 column-level transforms with metadata, formula tracking, and input validation |
-| Yuhan Guo      | EDA backend (`EDA.py`): summary functions, filtering, 1D/2D plot generation, regression analysis, multiline plots, correlation matrix |
-| Zeming Liang   | Shiny UI and integration (`app.py`): application assembly, reactive wiring, theme design, deployment, testing, and project report |
+| Cecilia Zang   | Data cleaning and preprocessing backend (`p2_divided.py`): 7 operations with validation, error handling, and pipeline support |
+| Baixuan Chen   | Feature engineering backend (`feature_engineering.py`): 11 transforms with formula tracking, metadata, and input validation |
+| Yuhan Guo      | EDA backend (`EDA.py`): summary functions, filtering, 5 plot families, regression analysis, and correlation matrix |
+| Zeming Liang   | Shiny UI and integration (`app.py`): application assembly, reactive wiring, Lux theme, tooltips, deployment, testing, and report |
 
 ## 5. Limitations and Future Work
 
-- **Session-local state.** Dataset version history is stored in memory and lost when the app restarts.
-- **Single-user design.** Concurrent users would share reactive state; a production deployment would require per-session isolation.
-- **Future enhancements.** Deploy to a hosted platform for public access, add violin and KDE density plots, and support the Parquet file format for large-dataset workflows.
+- **Session-local state.** Version history is stored in server memory and lost when the app restarts; there is no database or file-based persistence.
+- **Single-user design.** Concurrent users would share the same reactive state. A production deployment would need per-session isolation.
+- **Future enhancements.** Deploy to a hosted platform (e.g., ShinyApps.io or Posit Connect Cloud), add violin and KDE density plots, and support the Parquet format for large-dataset workflows.
