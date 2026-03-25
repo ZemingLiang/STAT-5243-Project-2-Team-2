@@ -1,5 +1,7 @@
 # STAT-5243-Project-2-Team-2
 
+**Deployed App:** <https://019d23ea-1266-cada-1d21-45e5d97e6ea5.share.connect.posit.cloud/>
+
 Group members: Zeming Liang (`zl3688`), Yuhan Guo (`yg2695`), Baixuan Chen (`bc3212`), Cecilia Zang (`cz2957`)
 
 ## App Architecture
