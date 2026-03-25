@@ -50,6 +50,18 @@ python3 tests.py
 - **Export**: CSV download buttons on Load, Cleaning, and Feature Engineering tabs
 - **UI**: Lux Bootstrap theme, sidebar layouts, tooltips, busy indicators, and dataset version history
 
+## Branch History (Development Log)
+
+The finalized submission lives on **`Main-Final-Deliverables`** (the default branch). The feature branches below are preserved as a record of the team's development workflow — they are **not** intended to be merged further.
+
+| Branch | Owner | Purpose |
+|--------|-------|---------|
+| `Main-Final-Deliverables` | Zeming Liang | Final integrated app — all modules merged, polished, and submission-ready |
+| `Feature-Engineering` | Baixuan Chen | Development of the 11 feature transforms (`feature_engineering.py`) |
+| `Data-Loading-Cleaning-Preprocessing` | Cecilia Zang | Development of the cleaning and preprocessing module (`data_cleaning.py`) |
+| `Exploratory-Data-Analysis` | Yuhan Guo | Development of the EDA backend (`eda.py`) — filtering, plotting, regression, correlation |
+| `UI-&-Web-App` | (initial scaffold) | Early project scaffold; superseded by the integrated `app.py` on the main branch |
+
 ## Troubleshooting
 
 - **`ModuleNotFoundError`**: Run `pip install -r requirements.txt` to install all dependencies.
