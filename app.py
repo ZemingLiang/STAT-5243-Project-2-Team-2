@@ -620,18 +620,21 @@ app_ui = ui.page_navbar(
             ui.sidebar(
                 ui.h6("Cleaning / Preprocessing", class_="text-uppercase fw-bold"),
                 ui.hr(),
-                ui.input_select(
-                    "clean_action",
-                    "Action",
-                    {
-                        "handle_missing": "Handle missing values",
-                        "remove_duplicates": "Remove duplicates",
-                        "scale_columns": "Scale numeric columns",
-                        "encode_columns": "Encode categorical columns",
-                        "handle_outliers": "Handle outliers",
-                        "standardize_text": "Standardize text (whitespace & case)",
-                        "coerce_types": "Coerce column types",
-                    },
+                ui.tooltip(
+                    ui.input_select(
+                        "clean_action",
+                        "Action",
+                        {
+                            "handle_missing": "Handle missing values",
+                            "remove_duplicates": "Remove duplicates",
+                            "scale_columns": "Scale numeric columns",
+                            "encode_columns": "Encode categorical columns",
+                            "handle_outliers": "Handle outliers",
+                            "standardize_text": "Standardize text (whitespace & case)",
+                            "coerce_types": "Coerce column types",
+                        },
+                    ),
+                    "Choose a preprocessing operation to apply to the active dataset",
                 ),
                 ui.input_selectize(
                     "clean_columns",
@@ -642,63 +645,82 @@ app_ui = ui.page_navbar(
                 ui.input_select("clean_single_column", "Single column", {}),
                 ui.panel_conditional(
                     "input.clean_action === 'handle_missing'",
-                    ui.input_select(
-                        "clean_strategy",
-                        "Missing-value strategy",
-                        {
-                            "drop_rows": "Drop rows",
-                            "drop_cols": "Drop columns",
-                            "mean": "Fill with mean",
-                            "median": "Fill with median",
-                            "mode": "Fill with mode",
-                            "constant": "Fill with constant",
-                        },
+                    ui.tooltip(
+                        ui.input_select(
+                            "clean_strategy",
+                            "Missing-value strategy",
+                            {
+                                "drop_rows": "Drop rows",
+                                "drop_cols": "Drop columns",
+                                "mean": "Fill with mean",
+                                "median": "Fill with median",
+                                "mode": "Fill with mode",
+                                "constant": "Fill with constant",
+                            },
+                        ),
+                        "How to handle missing values in selected columns",
                     ),
-                    ui.input_text("clean_constant_value", "Constant value", ""),
+                    ui.input_text("clean_constant_value", "Constant value", "", placeholder="e.g., 0 or unknown"),
                 ),
                 ui.panel_conditional(
                     "input.clean_action === 'scale_columns'",
-                    ui.input_select(
-                        "clean_scale_method",
-                        "Scaling method",
-                        {
-                            "standard": "Standard",
-                            "minmax": "Min-Max",
-                            "robust": "Robust",
-                        },
+                    ui.tooltip(
+                        ui.input_select(
+                            "clean_scale_method",
+                            "Scaling method",
+                            {
+                                "standard": "Standard",
+                                "minmax": "Min-Max",
+                                "robust": "Robust",
+                            },
+                        ),
+                        "Algorithm for rescaling numeric values to a standard range",
                     ),
                 ),
                 ui.panel_conditional(
                     "input.clean_action === 'encode_columns'",
-                    ui.input_select(
-                        "clean_encode_method",
-                        "Encoding method",
-                        {"label": "Label encode", "onehot": "One-hot encode"},
+                    ui.tooltip(
+                        ui.input_select(
+                            "clean_encode_method",
+                            "Encoding method",
+                            {"label": "Label encode", "onehot": "One-hot encode"},
+                        ),
+                        "Method for converting categorical values to numbers",
                     ),
                 ),
                 ui.panel_conditional(
                     "input.clean_action === 'handle_outliers'",
-                    ui.input_select(
-                        "clean_outlier_action",
-                        "Outlier action",
-                        {"remove": "Remove rows", "cap": "Cap values"},
+                    ui.tooltip(
+                        ui.input_select(
+                            "clean_outlier_action",
+                            "Outlier action",
+                            {"remove": "Remove rows", "cap": "Cap values"},
+                        ),
+                        "How to treat values outside the IQR fence boundaries",
                     ),
                     ui.input_numeric("clean_iqr", "IQR multiplier", 1.5, min=0.5, step=0.5),
+                    ui.tags.small({"class": "small-note"}, "1.5 = mild outliers, 3.0 = extreme outliers"),
                 ),
                 ui.panel_conditional(
                     "input.clean_action === 'standardize_text'",
-                    ui.input_select(
-                        "clean_text_case",
-                        "Case transform",
-                        {"lower": "Lowercase", "upper": "Uppercase", "title": "Title Case", "none": "No change"},
+                    ui.tooltip(
+                        ui.input_select(
+                            "clean_text_case",
+                            "Case transform",
+                            {"lower": "Lowercase", "upper": "Uppercase", "title": "Title Case", "none": "No change"},
+                        ),
+                        "Letter case normalization to apply to string columns",
                     ),
                 ),
                 ui.panel_conditional(
                     "input.clean_action === 'coerce_types'",
-                    ui.input_select(
-                        "clean_coerce_target",
-                        "Target type",
-                        {"numeric": "Numeric (non-convertible → NaN)", "string": "String"},
+                    ui.tooltip(
+                        ui.input_select(
+                            "clean_coerce_target",
+                            "Target type",
+                            {"numeric": "Numeric (non-convertible → NaN)", "string": "String"},
+                        ),
+                        "Target data type — non-convertible values become NaN for numeric",
                     ),
                 ),
                 ui.input_radio_buttons(
@@ -748,26 +770,35 @@ app_ui = ui.page_navbar(
             ui.sidebar(
                 ui.h6("Feature Engineering", class_="text-uppercase fw-bold"),
                 ui.hr(),
-                ui.input_select(
-                    "feature_method",
-                    "Method",
-                    {
-                        "log": "Log transform",
-                        "square": "Square",
-                        "cube": "Cube",
-                        "interaction": "Interaction",
-                        "ratio": "Ratio",
-                        "binning": "Binning",
-                        "one_hot": "One-hot encoding",
-                        "standardize": "Standardize",
-                        "normalize": "Normalize",
-                        "fillna": "Fill missing values",
-                        "dropna": "Drop missing rows",
-                    },
+                ui.tooltip(
+                    ui.input_select(
+                        "feature_method",
+                        "Method",
+                        {
+                            "log": "Log transform",
+                            "square": "Square",
+                            "cube": "Cube",
+                            "interaction": "Interaction",
+                            "ratio": "Ratio",
+                            "binning": "Binning",
+                            "one_hot": "One-hot encoding",
+                            "standardize": "Standardize",
+                            "normalize": "Normalize",
+                            "fillna": "Fill missing values",
+                            "dropna": "Drop missing rows",
+                        },
+                    ),
+                    "Type of feature transformation to apply — see explanation below",
                 ),
                 ui.output_ui("feature_explanation"),
-                ui.input_select("feature_col1", "Primary column", {}),
-                ui.input_select("feature_col2", "Secondary column", {}),
+                ui.tooltip(
+                    ui.input_select("feature_col1", "Primary column", {}),
+                    "Column to transform (required for all methods)",
+                ),
+                ui.tooltip(
+                    ui.input_select("feature_col2", "Secondary column", {}),
+                    "Second column — only used for Interaction and Ratio transforms",
+                ),
                 ui.input_text("feature_new_column", "New column name (optional)", ""),
                 ui.panel_conditional(
                     "input.feature_method === 'binning'",
@@ -791,7 +822,7 @@ app_ui = ui.page_navbar(
                             "constant": "Constant",
                         },
                     ),
-                    ui.input_text("feature_fill_value", "Constant fill value", ""),
+                    ui.input_text("feature_fill_value", "Constant fill value", "", placeholder="e.g., 0 or missing"),
                 ),
                 ui.input_radio_buttons(
                     "feature_save_mode",
@@ -902,18 +933,21 @@ app_ui = ui.page_navbar(
                 ui.input_select("plot2d_x", "X column", {}),
                 ui.input_select("plot2d_y", "Y column", {}),
                 ui.input_select("plot2d_hue", "Hue (optional)", {"": "None"}),
-                ui.input_select(
-                    "plot2d_kind",
-                    "2D plot kind",
-                    {
-                        "auto": "Auto",
-                        "hist": "2D histogram",
-                        "scatter": "Scatter",
-                        "line": "Line",
-                        "bar": "Bar",
-                        "box": "Box",
-                        "heatmap": "Heatmap",
-                    },
+                ui.tooltip(
+                    ui.input_select(
+                        "plot2d_kind",
+                        "2D plot kind",
+                        {
+                            "auto": "Auto",
+                            "hist": "2D histogram",
+                            "scatter": "Scatter",
+                            "line": "Line",
+                            "bar": "Bar",
+                            "box": "Box",
+                            "heatmap": "Heatmap",
+                        },
+                    ),
+                    "Chart type — Auto detects based on column types",
                 ),
                 ui.input_checkbox("plot2d_logx", "Log-scale X", False),
                 ui.input_checkbox("plot2d_logy", "Log-scale Y", False),
@@ -934,7 +968,10 @@ app_ui = ui.page_navbar(
                     col_widths=[6, 6],
                 ),
                 ui.layout_columns(
-                    ui.input_numeric("regression_order", "Polynomial order", 1, min=1, max=5),
+                    ui.tooltip(
+                        ui.input_numeric("regression_order", "Polynomial order", 1, min=1, max=5),
+                        "Degree of the polynomial fit: 1=linear, 2=quadratic, 3=cubic, etc.",
+                    ),
                     ui.div(
                         ui.input_checkbox("regression_logx", "Log-scale x", False),
                         ui.input_checkbox("regression_robust", "Robust fit", False),
@@ -964,10 +1001,13 @@ app_ui = ui.page_navbar(
         ui.card(
             ui.card_header(ui.strong("Correlation Matrix")),
             ui.layout_columns(
-                ui.input_select(
-                    "corr_method",
-                    "Method",
-                    {"pearson": "Pearson", "spearman": "Spearman", "kendall": "Kendall"},
+                ui.tooltip(
+                    ui.input_select(
+                        "corr_method",
+                        "Method",
+                        {"pearson": "Pearson", "spearman": "Spearman", "kendall": "Kendall"},
+                    ),
+                    "Pearson measures linear correlation; Spearman and Kendall measure monotonic association",
                 ),
                 ui.input_action_button("render_corr_btn", "Render Correlation Matrix",
                                        class_="btn-dark btn-sm"),
