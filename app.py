@@ -1090,6 +1090,26 @@ def server(input, output, session):
         ui.update_select("multiline_group", choices={col: col for col in categorical_cols}, session=session)
 
     @reactive.effect
+    def _sync_clean_columns_by_action() -> None:
+        """Auto-filter clean_columns choices to show only relevant column types."""
+        df = current_df()
+        action = input.clean_action()
+        if df is None:
+            return
+        all_cols = [str(col) for col in df.columns]
+        numeric_cols = [c for c in all_cols if pd.api.types.is_numeric_dtype(df[c])]
+        categorical_cols = [c for c in all_cols if not pd.api.types.is_numeric_dtype(df[c])]
+        if action == "scale_columns":
+            choices = {c: c for c in numeric_cols}
+        elif action == "encode_columns":
+            choices = {c: c for c in categorical_cols}
+        elif action == "standardize_text":
+            choices = {c: c for c in categorical_cols}
+        else:
+            choices = {c: c for c in all_cols}
+        ui.update_selectize("clean_columns", choices=choices, selected=[], session=session)
+
+    @reactive.effect
     @reactive.event(input.load_builtin_btn)
     def _load_builtin() -> None:
         name = input.builtin_dataset()
@@ -1177,10 +1197,17 @@ def server(input, output, session):
             )
             return transformed, (
                 f"Outlier handling on {column}: {diagnostics['n_outliers']} outliers "
-                f"identified with IQR multiplier {input.clean_iqr()}."
+                f"(Q1={diagnostics['q1']:.2f}, Q3={diagnostics['q3']:.2f}, "
+                f"IQR={diagnostics['iqr']:.2f}, "
+                f"bounds=[{diagnostics['lower_bound']:.2f}, {diagnostics['upper_bound']:.2f}], "
+                f"multiplier={input.clean_iqr()})."
             )
         elif action == "standardize_text":
             columns = list(input.clean_columns() or [])
+            # Warn if numeric columns selected — text standardization converts them to strings
+            numeric_selected = [c for c in columns if c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
+            if numeric_selected:
+                push_message("warning", f"Columns {numeric_selected} are numeric and will be converted to strings.")
             transformed = cleaning.standardize_text(
                 df, columns=columns or None, case=input.clean_text_case(),
             )
