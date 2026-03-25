@@ -377,7 +377,10 @@ def figure_from_payload(payload: dict[str, Any]) -> go.Figure:
                     x=0,
                     y=1.12,
                     showarrow=False,
-                    text=f"Pearson r: {round(float(data['pearson_correlation']), 4)}",
+                    text=(
+                        f"Pearson r: {round(float(data['pearson_correlation']), 4)}"
+                        f"  |  R\u00b2: {round(float(data['pearson_correlation'])**2, 4)}"
+                    ),
                 )
             ],
         )
@@ -1771,7 +1774,10 @@ def server(input, output, session):
         payload = regression_payload.get()
         if payload is None:
             return empty_figure("Render a regression plot to see output here.")
-        return figure_from_payload(payload)
+        fig = figure_from_payload(payload)
+        if input.regression_logx():
+            fig.update_xaxes(type="log")
+        return fig
 
     @output
     @render_plotly
