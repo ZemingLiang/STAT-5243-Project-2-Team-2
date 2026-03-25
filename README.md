@@ -8,7 +8,9 @@
 
 ## Overview
 
-An interactive, code-free data workbench built with **Shiny for Python**. Users can load, clean, transform, and explore tabular datasets entirely in the browser. The app is organized into five tabs — **Guide**, **Load**, **Cleaning**, **Feature Engineering**, and **EDA** — with a polished Lux Bootstrap theme, 20+ tooltips, sidebar layouts, and a full dataset version history.
+An interactive, code-free data workbench built with **Shiny for Python**. Users can load, clean, transform, and explore tabular datasets entirely in the browser. The app is organized into six tabs — **Guide**, **Load**, **Overview**, **Cleaning**, **Feature Engineering**, and **EDA** — with a polished Lux Bootstrap theme, per-tab dataset pickers, user instruction cards, and a full dataset version history.
+
+The tabs are **not** strictly sequential. Overview and EDA can be visited at any point to support cleaning and feature-engineering decisions. The workflow is flexible by design.
 
 All computation runs locally through pure Python module imports. There is no Flask, no REST API, and no external backend — user data never leaves the machine.
 
@@ -46,65 +48,107 @@ All 7 tests should pass (imports, built-in loaders, cleaning, feature engineerin
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Shiny app entrypoint — UI layout (page_navbar, cards, sidebars, tooltips) and server logic (51 reactive elements, 19 output renderers) |
-| `eda.py` | EDA backend — summary tables, pandas query filtering, 6 plot families (1D, 2D, regression, multiline, correlation), Pearson/Spearman/Kendall correlation matrix |
-| `data_cleaning.py` | Cleaning backend — 9 operations: missing values (6 strategies), duplicates, scaling (3 methods), encoding (2 methods), outliers (IQR), text standardization, type coercion |
-| `feature_engineering.py` | Feature engineering backend — 11 transforms (log, square, cube, interaction, ratio, binning, one-hot, standardize, normalize, fillna, dropna) with formula tracking and metadata |
+| `app.py` | Shiny app entrypoint — UI layout and server logic (6 tabs, per-tab dataset pickers, reactive versioning) |
+| `eda.py` | EDA backend — summary tables, pandas query filtering, 6 plot families, correlation matrix |
+| `data_cleaning.py` | Cleaning backend — 9 operations including k-NN imputation, validation, and pipeline support |
+| `feature_engineering.py` | Feature engineering backend — 12 transforms including custom algebraic expressions |
 | `tests.py` | Integration smoke tests — 7 test cases covering all modules |
 | `test_data/` | Built-in dataset: Sleep, Mobile and Stress (15,000 rows, 13 columns) |
 | `requirements.txt` | All Python dependencies (13 packages) |
 | `REPORT.md` | Final project report (markdown source) |
-| `report.pdf` | Final project report (2-page PDF for Courseworks submission) |
-| `.gitignore` | Excludes `__pycache__/`, `.DS_Store`, and assignment PDFs |
+| `report.pdf` | Final project report (PDF) |
 
 ---
 
 ## Features
 
 ### 1. Data Loading
-- Upload **CSV, Excel (.xlsx/.xls), JSON, and RDS** files with robust error handling on every format
+
+- Upload **CSV, Excel (.xlsx/.xls), JSON, and RDS** files with robust error handling
 - **3 built-in datasets:** Sleep/Mobile/Stress (15,000 rows), Iris (150 rows), Tips (244 rows)
-- Summary card displays row count, column count, missing values, and duplicates after loading
-- Full **dataset version history** — every load, clean, or transform creates a new version; switch back to any previous version via the dataset picker
+- **Conflict resolution:** if more than one source dataset is loaded, a modal dialog prompts the user to choose one; all other datasets are removed so subsequent work starts from a single clean source
+- Full **dataset version history** — every load, clean, or transform creates a descriptively named version; switch to any previous version via the Load tab picker
 
-### 2. Data Cleaning and Preprocessing
-- **9 operations:** handle missing values (drop rows/columns, fill with mean/median/mode/constant), remove duplicates (with inspection of duplicate rows), scale numeric columns (standard/min-max/robust), encode categorical columns (label/one-hot), detect and handle outliers (IQR-based removal or capping with adjustable multiplier), standardize text (whitespace/case), coerce column types (string-to-numeric or vice versa)
-- **Smart column filtering** — dropdown auto-shows only numeric columns for scaling, only categorical for encoding
-- **Preview-then-apply workflow** with before/after comparison charts (distribution histograms for value changes, row-count bars for row removals)
-- Rich **outlier diagnostics** showing Q1, Q3, IQR, fence boundaries, and outlier count
-- **Type safety warning** when applying text operations to numeric columns
+### 2. Overview (new)
 
-### 3. Feature Engineering
-- **11 transforms:** log (log1p), square, cube, interaction (col1 * col2), ratio (col1 / col2 with zero-denominator protection), binning, one-hot encoding (with cardinality guard at >50 unique values), standardize (z-score), normalize (min-max), fill NA, drop NA
-- **Contextual explanation panel** for each transform (e.g., "Applies log(1+x). Reduces right-skew and compresses large values.")
-- **Formula display** (e.g., `log_age = log1p(age)`) with before/after summary statistics (mean, std)
-- **Before/after comparison chart** comparing input column vs. output column distributions
-- Custom output column naming and method-specific parameter panels
+A quick decision-support summary shown between Load and Cleaning, designed to inform cleaning and feature-engineering choices before diving in:
 
-### 4. Exploratory Data Analysis (EDA)
-- **Summary tables:** data preview (adjustable row count), descriptive statistics, column types
-- **Free-text pandas query filtering** with syntax hints and error guidance (e.g., `age > 30 and gender == "Female"`)
-- **1D plots:** histograms and categorical bar charts with log-scale X/Y toggles, normalization, and a persistent statistics panel (mean, median, std, skewness, kurtosis)
-- **2D plots:** scatter, line, bar, box, heatmap, and 2D histogram with optional color grouping (hue). Column selectors show type labels like `age (num)` and `gender (cat)` to guide valid selections
-- **Regression analysis:** polynomial fit (order 1–5), robust regression, and LOWESS smoothing with **Pearson r, R-squared, and p-value** displayed directly on the plot
-- **Multiline grouped plots** with shared bin edges for direct comparison across categories
-- **Correlation matrix heatmap** with Pearson, Spearman, or Kendall methods, annotated values, and interactive hover
-- All plots rendered with **Plotly** (zoom, pan, hover tooltips) and expandable to full screen
+- **Missing Value Overview** — table of columns with missing values, counts, and percentages
+- **Duplicate Overview** — count of fully duplicate rows with example rows; "No duplicate detected" if none
+- **Scale Review** — min, max, and mean for every numeric column in tabular form
+- Reminder that EDA provides in-depth analysis and can be consulted at any time
 
-### 5. UI/UX
-- **Lux Bootstrap theme** (shinyswatch) with custom CSS — gradient metric cards, hover shadow transitions, tip boxes
-- **Custom Plotly template** with a 10-color coordinated palette and consistent typography
-- **Guide tab** with welcome message, 6-step walkthrough, and 3 contextual tip boxes
-- **20+ tooltips** on buttons, selectors, and controls throughout the app
-- **Help notes** on numeric inputs (IQR formula, bin guidance, polynomial order explanation)
-- **Sidebar layouts** in Cleaning and Feature Engineering tabs (collapsible on mobile)
-- **11 full-screen expandable cards** for plots and tables
-- **Busy indicators** during all reactive computations
-- **Comprehensive error handling** — 13 try/except blocks, 57+ null checks, input validation on every operation
+### 3. Data Cleaning and Preprocessing
 
-### 6. Export
+- **9 operations:** handle missing values, remove duplicates, scale numeric columns, encode categorical columns, detect and handle outliers, standardize text, coerce column types
+- **k-NN imputation (new, default):** fills missing values using k nearest neighbors computed from other numeric columns. Automatically selects feature columns with ≥ 80 % valid values in the rows to be imputed. Issues a warning if fewer than 50 % of rows can be matched. Configurable `k` parameter (default 5)
+- **Drop Rows/Cols fix:** now requires at least one column to be selected — prevents accidentally dropping rows across all columns
+- **Single column selector** for outlier handling is hidden for all other actions, eliminating ambiguity
+- **Per-tab dataset picker:** choose which saved version to clean from the sidebar, independently of the Load tab
+- **User instruction card** at the top of the Cleaning tab with EDA/Overview cross-references
+- **Default save mode** is "Apply to current version" (overwrite in place); switch to "Save as derived version" to branch a new named copy
+- **Preview-then-apply workflow** with before/after comparison charts
+
+### 4. Feature Engineering
+
+- **12 transforms:** log (log1p), square, cube, interaction (col1 × col2), ratio (col1 / col2), binning, one-hot encoding, standardize (z-score), normalize (min-max), fill NA, drop NA, **custom algebraic expression (new)**
+- **Custom New Column:** enter any pandas-eval expression (e.g., `(price - cost) / price`) to create a new column; errors for non-existent columns or invalid syntax are reported immediately
+- **Per-tab dataset picker:** choose which saved version to transform
+- **User instruction card** with EDA cross-references
+- **Descriptive version names:** derived datasets are named to encode the operation — e.g., `log_Age_01`, `expr_margin_01`
+
+### 5. Exploratory Data Analysis (EDA)
+
+- **Per-tab dataset picker:** choose which version to analyze for each operation independently
+- **User instruction card** reminding users that EDA is useful at every stage, not just after cleaning
+- **Summary tables:**
+  - Data preview (adjustable row count)
+  - **Describe — Numeric:** count, mean, std, min, 25 %, 50 %, 75 %, max (numeric columns only)
+  - **Describe — Categorical:** count, unique, top, freq (categorical columns only)
+  - Column types
+- **Free-text pandas query filtering** with improved error guidance: wrap each condition in parentheses before combining, e.g. `("col_cat" == "sex") & ("col_num" >= 5)`
+- **1D plots:** histograms and categorical bar charts with log-scale toggles, normalization, and persistent statistics (mean, median, std, skewness, kurtosis)
+- **2D plots:** scatter, line, bar, box, heatmap, 2D histogram with optional color grouping
+- **Regression analysis:** polynomial (order 1–5), robust, and LOWESS with Pearson r, R², and p-value
+- **Multiline grouped plots** for cross-category distribution comparison
+- **Correlation matrix heatmap** (Pearson, Spearman, Kendall) with annotated values
+
+### 6. Non-Linear Workflow Philosophy
+
+The tabs are not a rigid pipeline. Users are encouraged to:
+
+- Visit **Overview** and **EDA** before and during cleaning to understand column distributions and scales
+- Jump to **EDA → 1D Plot** to visualize outliers before deciding on an outlier strategy in Cleaning
+- Use **EDA → Correlation Matrix** before Feature Engineering to identify redundant columns
+- Apply cleaning or feature engineering operations on any saved version using the per-tab pickers, not just the most recent one
+
+### 7. Descriptive Dataset Version Names
+
+Derived datasets are named to encode the operation performed, making it easy to track versions:
+
+| Operation | Example key |
+|-----------|-------------|
+| k-NN impute column `Age` | `knn_Age_01` |
+| Drop rows for column `Income` | `dropr_Income_01` |
+| Scale with Min-Max | `scl_mm_ColA_01` |
+| One-hot encode `Gender` | `enc_ohe_Gender_01` |
+| Log transform `Price` | `log_Price_01` |
+| Custom expression, new col `margin` | `expr_margin_01` |
+| Filter `age >= 5` | `filt_age_geq_5_01` |
+| Filter `(age >= 5) & (type == "race")` | `filt_age_geq_5_type_eq_race_01` |
+
+### 8. UI/UX
+
+- **Lux Bootstrap theme** (shinyswatch) with custom CSS — gradient metric cards, instruction boxes, tip boxes
+- **User instruction cards** on Cleaning, Feature Engineering, and EDA tabs with cross-tab references
+- **20+ tooltips** throughout
+- **Sidebar layouts** in Cleaning and Feature Engineering (collapsible on mobile)
+- **Full-screen expandable cards** for all plots and tables
+- **Busy indicators** during computations
+
+### 9. Export
+
 - **CSV download buttons** on the Load, Cleaning, and Feature Engineering tabs
-- Download the active dataset or any preview result at any stage
 
 ---
 
@@ -124,15 +168,14 @@ All 7 tests should pass (imports, built-in loaders, cleaning, feature engineerin
 
 ## Branch History (Development Log)
 
-The finalized submission lives on **`Main-Final-Deliverables`** (the default branch). Feature branches are preserved as a record of the team's development workflow — they are **not** intended to be merged further.
+The finalized submission lives on **`Main-Final-Deliverables`** (the default branch).
 
 | Branch | Owner | Purpose |
 |--------|-------|---------|
 | `Main-Final-Deliverables` | Zeming Liang | Final integrated app — all modules merged, polished, and submission-ready |
 | `Feature-Engineering` | Baixuan Chen | Development of the 11 feature transforms (`feature_engineering.py`) |
 | `Data-Loading-Cleaning-Preprocessing` | Cecilia Zang | Development of the cleaning and preprocessing module (`data_cleaning.py`) |
-| `Exploratory-Data-Analysis` | Yuhan Guo | Development of the EDA backend (`eda.py`) — filtering, plotting, regression, correlation |
-| `UI-&-Web-App` | (initial scaffold) | Early project scaffold; superseded by the integrated `app.py` on the main branch |
+| `Exploratory-Data-Analysis` | Yuhan Guo | Development of the EDA backend (`eda.py`) |
 
 ---
 
@@ -140,10 +183,10 @@ The finalized submission lives on **`Main-Final-Deliverables`** (the default bra
 
 | Team Member | Contribution |
 |-------------|-------------|
-| **Cecilia Zang** | Data cleaning and preprocessing backend (`data_cleaning.py`): 9 operations with validation, error handling, and pipeline support |
-| **Baixuan Chen** | Feature engineering backend (`feature_engineering.py`): 11 transforms with formula tracking, metadata, and input validation |
-| **Yuhan Guo** | EDA backend (`eda.py`): summary functions, filtering, 6 plot families, regression analysis, and correlation matrix |
-| **Zeming Liang** | Shiny UI and integration (`app.py`): application assembly, reactive wiring, Lux theme, 20+ tooltips, deployment, testing, and report |
+| **Cecilia Zang** | Data cleaning and preprocessing backend (`data_cleaning.py`): 9 operations including k-NN imputation |
+| **Baixuan Chen** | Feature engineering backend (`feature_engineering.py`): 12 transforms including custom expressions |
+| **Yuhan Guo** | EDA backend (`eda.py`): summary functions, filtering, 6 plot families, regression, correlation |
+| **Zeming Liang** | Shiny UI and integration (`app.py`): application assembly, Overview tab, per-tab pickers, Lux theme, deployment, testing |
 
 ---
 
@@ -155,4 +198,6 @@ The finalized submission lives on **`Main-Final-Deliverables`** (the default bra
 | Port already in use | Use `shiny run app.py --port 8765` |
 | seaborn cache error | The app uses `sklearn.datasets.load_iris()` for Iris to avoid cache issues |
 | RDS upload fails | Ensure `pyreadr` is installed: `pip install pyreadr` |
-| Filter syntax error | Use `==` for equality, `&` for AND, `|` for OR, backticks for column names with spaces |
+| Filter syntax error | Wrap each condition in parentheses: `("col_cat" == "val") & ("col_num" >= 5)`. Use `==` for equality, backticks for column names with spaces |
+| k-NN imputation error | No valid feature columns — check Overview → Scale Review for numeric columns; try scaling first |
+| Custom expression error | Check column names match exactly; use backticks for names with spaces: `` `column name` `` |

@@ -674,6 +674,80 @@ def _apply_dropna_feature(
 
 
 # ---------------------------------------------------------------------------
+# Custom algebraic expression transform
+# ---------------------------------------------------------------------------
+
+def _apply_custom_expr_feature(
+    df: pd.DataFrame,
+    expr: str,
+    *,
+    new_column: str | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Create a new column from a custom algebraic expression evaluated with ``df.eval``.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Source dataframe (not modified in place).
+    expr : str
+        A pandas-eval-compatible expression referencing existing column names.
+        Examples: ``"col_a * 2 + col_b"``, ``"(price - cost) / price"``.
+    new_column : str or None, optional
+        Name for the output column.  Required — if not provided the function
+        raises ``ValueError``.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, dict[str, Any]]
+        A copy of *df* with the new column appended, and a metadata dict.
+
+    Raises
+    ------
+    ValueError
+        If *new_column* is empty, if the expression references non-existent
+        columns, or if ``df.eval`` cannot evaluate the expression.
+    """
+    if not new_column or not new_column.strip():
+        raise ValueError(
+            "A column name is required when using Custom New Column. "
+            "Enter a name in the 'New column name' field."
+        )
+    if not expr or not expr.strip():
+        raise ValueError("Enter an algebraic expression to evaluate.")
+
+    # Check that the expression only references existing columns
+    # by trying df.eval first and catching helpful errors.
+    try:
+        result = df.eval(expr)
+    except pd.errors.UndefinedVariableError as exc:
+        raise ValueError(
+            f"UndefinedVariableError: column not found — {exc}. "
+            "Check column names and expression."
+        ) from exc
+    except Exception as exc:
+        raise ValueError(
+            f"Could not evaluate expression '{expr}': {exc}. "
+            "Check column names and operators (use +, -, *, /, **, // etc.)."
+        ) from exc
+
+    if not isinstance(result, pd.Series):
+        raise ValueError(
+            "The expression must produce a single column (Series). "
+            "Make sure it is a scalar-per-row computation, not a DataFrame transform."
+        )
+
+    out = df.copy()
+    col_name = new_column.strip()
+    out[col_name] = result
+    return out, {
+        "feature_type": "custom_expr",
+        "input_columns": [],
+        "output_columns": [col_name],
+        "formula": f"{col_name} = {expr}",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public dispatcher
 # ---------------------------------------------------------------------------
 
@@ -690,6 +764,7 @@ def apply_feature_engineering_to_df(
     drop_first: bool = False,
     strategy: str = "mean",
     fill_value: Any | None = None,
+    expr: str | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Apply a single feature-engineering transformation to a DataFrame.
 
@@ -803,10 +878,13 @@ def apply_feature_engineering_to_df(
     if method_norm == "dropna":
         return _apply_dropna_feature(df, col1=col1)
 
+    if method_norm == "custom_expr":
+        return _apply_custom_expr_feature(df, expr or "", new_column=new_column)
+
     raise ValueError(
         "Invalid feature engineering method. Allowed: "
         "log, square, cube, interaction, ratio, binning, one_hot, "
-        "standardize, normalize, fillna, dropna."
+        "standardize, normalize, fillna, dropna, custom_expr."
     )
 
 

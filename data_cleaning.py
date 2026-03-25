@@ -29,6 +29,7 @@ Sections
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, LabelEncoder
+from sklearn.neighbors import NearestNeighbors
 from typing import Optional, Union
 
 
@@ -258,6 +259,167 @@ def handle_missing(
         raise ValueError(f"Unknown strategy: {strategy}")
 
     return df.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+#  3b. k-NN Imputation
+# ---------------------------------------------------------------------------
+
+
+def knn_impute(
+    df: pd.DataFrame,
+    columns: list[str],
+    k: int = 5,
+) -> tuple["pd.DataFrame", Optional[str]]:
+    """Impute missing values in *columns* using k-Nearest-Neighbour averaging.
+
+    Uses ``sklearn.neighbors.NearestNeighbors`` with a KD-tree / ball-tree
+    internally, so memory usage is O(n · k) rather than O(n²), making it safe
+    for large datasets (tens of thousands of rows).  Features are
+    StandardScaler-normalised before distance computation so that columns with
+    large numeric ranges do not dominate.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input dataset.
+    columns : list[str]
+        Numeric columns whose missing values should be imputed.
+    k : int, default 5
+        Number of nearest neighbours to average over.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, str | None]
+        ``(result_df, warning_message)`` where *warning_message* is ``None``
+        when all rows were successfully imputed, or a descriptive string when
+        fewer than 50 % of rows could be imputed (the un-imputable rows are
+        dropped before returning).
+
+    Raises
+    ------
+    ValueError
+        If no other numeric columns exist to use as features, or if none of
+        those feature columns contain ≥ 80 % valid values in the rows that
+        need imputation.
+    """
+    df = df.copy()
+
+    # Validate that all target columns exist and are numeric
+    missing_cols = [c for c in columns if c not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Column(s) not found: {missing_cols}")
+    non_numeric = [c for c in columns if not pd.api.types.is_numeric_dtype(df[c])]
+    if non_numeric:
+        raise ValueError(
+            f"k-NN imputation requires numeric target columns. "
+            f"Column(s) {non_numeric} are not numeric."
+        )
+
+    # Step 1 — find all other numeric columns (not in target set)
+    all_other_numeric = [
+        c for c in df.columns
+        if c not in columns and pd.api.types.is_numeric_dtype(df[c])
+    ]
+    if not all_other_numeric:
+        raise ValueError(
+            f"k-NN imputation cannot be performed for column(s) {columns}: "
+            "no other numeric-valued columns exist in the dataset."
+        )
+
+    # Step 2 — identify rows that need imputation
+    impute_mask = df[columns].isnull().any(axis=1)
+    n_impute = int(impute_mask.sum())
+
+    if n_impute == 0:
+        return df, None  # nothing to impute
+
+    # Step 3 — keep only feature columns with ≥ 80 % valid values
+    # in the rows that need imputation
+    feature_cols: list[str] = []
+    for c in all_other_numeric:
+        n_valid = int(df.loc[impute_mask, c].notna().sum())
+        if n_impute > 0 and n_valid / n_impute >= 0.80:
+            feature_cols.append(c)
+
+    if not feature_cols:
+        raise ValueError(
+            f"k-NN imputation cannot be performed for column(s) {columns}: "
+            "no other numeric-valued columns contain valid values for ≥ 80 % "
+            f"of the {n_impute} entries where {columns} has missing values."
+        )
+
+    # Step 4 — count rows where ALL feature columns are valid (can be imputed)
+    can_impute_mask = impute_mask & df[feature_cols].notna().all(axis=1)
+    n_can_impute = int(can_impute_mask.sum())
+    ratio = n_can_impute / n_impute if n_impute > 0 else 1.0
+
+    warning_msg: Optional[str] = None
+    if ratio < 0.50:
+        warning_msg = (
+            f"Warning: For column(s) {columns} imputed using {feature_cols}, "
+            f"only {n_can_impute}/{n_impute} ({ratio:.1%}) of rows requiring "
+            f"imputation have valid values in all feature columns. "
+            f"The {n_impute - n_can_impute} rows that cannot be k-NN imputed "
+            "will be dropped."
+        )
+
+    # Step 5 — drop rows that cannot be imputed, then reset the index
+    cannot_impute_mask = impute_mask & ~can_impute_mask
+    df = df[~cannot_impute_mask].reset_index(drop=True)
+
+    # Re-identify rows that still need imputation after dropping
+    still_impute_mask = df[columns].isnull().any(axis=1)
+    need_impute_idx = df.index[still_impute_mask].tolist()
+
+    if not need_impute_idx:
+        return df, warning_msg
+
+    # Step 6 — build the reference set: rows with valid targets AND features
+    ref_mask = df[columns].notna().all(axis=1) & df[feature_cols].notna().all(axis=1)
+    df_ref = df[ref_mask]
+
+    if df_ref.empty:
+        raise ValueError(
+            "No reference rows with valid values in both target and feature columns "
+            "are available after filtering. k-NN imputation cannot proceed."
+        )
+
+    # Step 7 — scale features to unit variance so no single column dominates
+    # distances, then use sklearn NearestNeighbors (KD-tree) for O(n log n)
+    # neighbour lookup — avoids the O(n²·d) pairwise matrix that would OOM
+    # on datasets with tens of thousands of rows.
+    scaler = StandardScaler()
+    ref_features_scaled = scaler.fit_transform(
+        df_ref[feature_cols].values.astype(float)
+    )
+    ref_targets_np = df_ref[columns].values.astype(float)  # (n_ref, t)
+
+    impute_features_raw = df.loc[need_impute_idx, feature_cols].values.astype(float)
+    impute_features_scaled = scaler.transform(impute_features_raw)
+
+    k_actual = min(k, len(df_ref))
+    nn_model = NearestNeighbors(
+        n_neighbors=k_actual,
+        algorithm="auto",   # picks ball_tree / kd_tree / brute automatically
+        metric="euclidean",
+        n_jobs=1,
+    )
+    nn_model.fit(ref_features_scaled)
+    # kneighbors returns (distances, indices) — indices into df_ref
+    _, nn_idx = nn_model.kneighbors(impute_features_scaled)  # (n_imp, k_actual)
+
+    # Average target values over k neighbours: (n_imp, t)
+    neighbor_targets = ref_targets_np[nn_idx]
+    imputed_means = neighbor_targets.mean(axis=1)
+
+    # Vectorised assignment — avoid per-cell pandas .loc which is very slow
+    imp_arr = df.loc[need_impute_idx, columns].values.astype(float)  # (n_imp, t)
+    nan_mask = np.isnan(imp_arr)
+    imp_arr[nan_mask] = imputed_means[nan_mask]
+    df.loc[need_impute_idx, columns] = imp_arr
+
+    return df, warning_msg
 
 
 # ---------------------------------------------------------------------------
