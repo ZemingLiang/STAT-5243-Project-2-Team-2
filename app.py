@@ -1,5 +1,30 @@
 from __future__ import annotations
 
+"""
+STAT 5243 Project 2 — Interactive Data Workbench (Shiny for Python).
+
+This module is the single entry point for the application. It defines:
+
+- **app_ui**: the page layout (navbar, tabs, cards, sidebars, inputs, outputs)
+- **server**: all reactive logic (dataset loading, cleaning, feature engineering,
+  EDA plotting, filtering, download handlers, and dynamic UI updates)
+- **app**: the ``shiny.App`` instance that Uvicorn serves
+
+Architecture
+------------
+The UI calls three pure-function backend modules directly:
+
+- ``p2_divided`` (aliased as ``cleaning``) — data loading, cleaning, scaling,
+  encoding, outlier handling, text standardisation, type coercion
+- ``feature_engineering`` — 11 column-level transforms with metadata
+- ``EDA`` — summary tables, filtering, 1D/2D plots, regression, correlation
+
+State is managed through Shiny reactive values (``datasets_state``,
+``active_key_state``, plot payloads, preview DataFrames). An in-memory
+``OrderedDict`` tracks every dataset version so users can switch back
+to any previous state via the dataset picker.
+"""
+
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
@@ -56,6 +81,7 @@ TEST_DATA_PATH = BASE_DIR / "test_data" / "sleep_mobile_stress_dataset_15000.csv
 # Pure helper functions (NO changes from original)
 # ---------------------------------------------------------------------------
 def load_builtin_dataset(name: str) -> pd.DataFrame:
+    """Return a built-in demo DataFrame by name ('sleep_health', 'iris', 'tips')."""
     if name == "sleep_health":
         return pd.read_csv(TEST_DATA_PATH)
     if name == "iris":
@@ -67,6 +93,7 @@ def load_builtin_dataset(name: str) -> pd.DataFrame:
 
 
 def load_uploaded_dataset(path: str, filename: str) -> pd.DataFrame:
+    """Dispatch a user-uploaded file to the correct pandas loader based on extension."""
     suffix = Path(filename).suffix.lower()
     if suffix == ".csv":
         return cleaning.load_csv(path)
@@ -80,6 +107,7 @@ def load_uploaded_dataset(path: str, filename: str) -> pd.DataFrame:
 
 
 def next_dataset_key(datasets: OrderedDict[str, dict[str, Any]], prefix: str) -> str:
+    """Generate the next unique key for a dataset version (e.g., 'cleaned_01', 'cleaned_02')."""
     if prefix == "original" and "original" not in datasets:
         return "original"
     index = 1
@@ -99,6 +127,7 @@ def register_dataset_version(
     source_key: str | None = None,
     transform: str | None = None,
 ) -> tuple[OrderedDict[str, dict[str, Any]], str]:
+    """Register a new dataset version in the ordered history and return the updated dict + new key."""
     key = next_dataset_key(datasets, prefix)
     new_datasets = OrderedDict(datasets)
     new_datasets[key] = {
@@ -118,6 +147,7 @@ def overwrite_dataset_version(
     *,
     transform: str | None = None,
 ) -> OrderedDict[str, dict[str, Any]]:
+    """Replace the DataFrame in an existing dataset version, preserving its position in history."""
     new_datasets = OrderedDict(datasets)
     record = dict(new_datasets[key])
     record["df"] = df.copy()
@@ -128,6 +158,7 @@ def overwrite_dataset_version(
 
 
 def format_history_table(datasets: OrderedDict[str, dict[str, Any]]) -> pd.DataFrame:
+    """Convert the dataset version history into a display-ready DataFrame for the history table."""
     rows: list[dict[str, Any]] = []
     for key, record in datasets.items():
         df = record["df"]
@@ -146,6 +177,7 @@ def format_history_table(datasets: OrderedDict[str, dict[str, Any]]) -> pd.DataF
 
 
 def coerce_text_value(value: str | None) -> Any:
+    """Parse a user-entered string into the most specific Python type (bool > int > float > str)."""
     if value is None:
         return None
     text = str(value).strip()
@@ -165,6 +197,7 @@ def coerce_text_value(value: str | None) -> Any:
 
 
 def dataframe_from_payload(payload: dict[str, Any]) -> pd.DataFrame:
+    """Extract a DataFrame from an EDA JSON payload's 'data' dict (columns + rows)."""
     data = payload.get("data", {})
     columns = data.get("columns", [])
     rows = data.get("rows", [])
@@ -174,12 +207,14 @@ def dataframe_from_payload(payload: dict[str, Any]) -> pd.DataFrame:
 
 
 def current_overview(df: pd.DataFrame | None) -> dict[str, Any] | None:
+    """Return a dict of basic dataset stats (rows, cols, missing, duplicates) or None."""
     if df is None:
         return None
     return cleaning.get_overview(df)
 
 
 def current_column_types(df: pd.DataFrame | None) -> pd.DataFrame:
+    """Return a DataFrame of column names, dtypes, and numeric/categorical flags."""
     if df is None:
         return pd.DataFrame(columns=["column", "dtype", "is_numeric", "is_categorical"])
     payload = EDA.column_types(df)
@@ -187,10 +222,12 @@ def current_column_types(df: pd.DataFrame | None) -> pd.DataFrame:
 
 
 def midpoints(edges: list[float]) -> list[float]:
+    """Compute bin midpoints from a list of histogram bin edges."""
     return [(float(edges[i]) + float(edges[i + 1])) / 2 for i in range(len(edges) - 1)]
 
 
 def widths(edges: list[float]) -> list[float]:
+    """Compute bin widths from a list of histogram bin edges."""
     return [float(edges[i + 1]) - float(edges[i]) for i in range(len(edges) - 1)]
 
 
@@ -198,6 +235,7 @@ def widths(edges: list[float]) -> list[float]:
 # Figure helpers
 # ---------------------------------------------------------------------------
 def empty_figure(title: str = "No plot yet.") -> go.Figure:
+    """Return a blank Plotly figure with a centered title message."""
     fig = go.Figure()
     fig.update_layout(title=title)
     return fig
@@ -259,6 +297,7 @@ def build_rowcount_figure(before_count: int, after_count: int, action: str) -> g
 
 
 def figure_from_payload(payload: dict[str, Any]) -> go.Figure:
+    """Convert an EDA JSON payload into a styled Plotly figure, dispatching on plot_type."""
     status = payload.get("status")
     if status == "error":
         return empty_figure(payload.get("message", "Unable to render plot."))
@@ -1034,6 +1073,18 @@ app_ui = ui.page_navbar(
 # Server — ALL logic unchanged, only render.ui presentation updated
 # ---------------------------------------------------------------------------
 def server(input, output, session):
+    """Shiny server function defining all reactive state, event handlers, and output renderers.
+
+    State is organised into reactive values:
+    - ``datasets_state``: OrderedDict of all dataset versions (key -> {df, label, source_key, transform, created_at})
+    - ``active_key_state``: the currently selected dataset key
+    - ``messages_state``: list of recent notification messages (max 8)
+    - Plot payloads and preview DataFrames for cleaning, feature engineering, and EDA
+
+    Event handlers follow a preview-then-apply pattern: the user clicks Preview to
+    inspect results (comparison chart + data table), then Apply to commit the change
+    as a new version in the dataset history.
+    """
     datasets_state = reactive.value(OrderedDict())
     active_key_state = reactive.value(None)
     messages_state = reactive.value([])
@@ -1080,6 +1131,7 @@ def server(input, output, session):
     def column_type_frame() -> pd.DataFrame:
         return current_column_types(current_df())
 
+    # Auto-sync the dataset-picker dropdown whenever a new version is registered
     @reactive.effect
     def _sync_dataset_picker() -> None:
         datasets = datasets_state.get()
@@ -1099,6 +1151,7 @@ def server(input, output, session):
             active_key_state.set(key)
             clear_previews()
 
+    # Refresh every column selector when the active dataset changes (type-aware)
     @reactive.effect
     def _sync_column_inputs() -> None:
         df = current_df()
@@ -1139,6 +1192,7 @@ def server(input, output, session):
         ui.update_select("multiline_value", choices={col: col for col in numeric_cols}, session=session)
         ui.update_select("multiline_group", choices={col: col for col in categorical_cols}, session=session)
 
+    # Filter clean_columns choices to match the selected action (numeric for scale, categorical for encode)
     @reactive.effect
     def _sync_clean_columns_by_action() -> None:
         """Auto-filter clean_columns choices to show only relevant column types."""
@@ -1205,6 +1259,7 @@ def server(input, output, session):
         except Exception as exc:
             push_message("error", f"Failed to load uploaded file: {exc}")
 
+    # Dispatch cleaning operation based on selected action -- returns (transformed_df, summary_string)
     def compute_cleaning_result() -> tuple[pd.DataFrame, str]:
         df = current_df()
         if df is None:
@@ -1273,6 +1328,7 @@ def server(input, output, session):
 
         return transformed, f"Cleaning action '{action}' produced shape {transformed.shape}."
 
+    # Save a transformation result as either a new derived version or an overwrite of the current version
     def apply_transformed_result(
         transformed: pd.DataFrame,
         *,
@@ -1361,6 +1417,7 @@ def server(input, output, session):
         except Exception as exc:
             push_message("error", f"Cleaning apply failed: {exc}")
 
+    # Run the selected feature engineering transform -- returns (transformed_df, summary_string, metadata_dict)
     def compute_feature_result() -> tuple[pd.DataFrame, str, dict]:
         df = current_df()
         if df is None:
