@@ -1370,7 +1370,17 @@ def server(input, output, session):
                 )
             else:
                 feature_comparison_fig.set(None)
-            push_message("info", "Feature-engineering preview updated.")
+            # Show before/after stats for numeric transforms
+            if (input_col and out_col and df is not None
+                    and input_col in df.columns and out_col in transformed.columns
+                    and pd.api.types.is_numeric_dtype(df[input_col])
+                    and pd.api.types.is_numeric_dtype(transformed[out_col])):
+                b = df[input_col].dropna()
+                a = transformed[out_col].dropna()
+                push_message("info",
+                    f"Before: mean={b.mean():.3f}, std={b.std():.3f} | "
+                    f"After: mean={a.mean():.3f}, std={a.std():.3f}")
+            push_message("info", "Feature preview updated. To undo, switch to a previous dataset version in the Load tab.")
         except Exception as exc:
             push_message("error", f"Feature preview failed: {exc}")
 

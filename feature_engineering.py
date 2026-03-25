@@ -433,6 +433,14 @@ def _apply_one_hot_encoding(
         listing all generated column names.
     """
     _require_categorical(df, [col1])
+    # Guard against high-cardinality columns that would explode the column count
+    n_unique = df[col1].nunique()
+    if n_unique > 50:
+        raise ValueError(
+            f"Column '{col1}' has {n_unique} unique values. One-hot encoding "
+            f"would create {n_unique} new columns, which is likely unintended. "
+            f"Consider using label encoding or binning the column first."
+        )
     out = df.copy()
     dummy_prefix = prefix or col1
     dummies = pd.get_dummies(
