@@ -4,7 +4,7 @@
 
 Our application is an interactive data workbench built with **Shiny for Python**. It lets users load, clean, transform, and explore tabular datasets entirely in the browser — no coding required. The interface is organized into five tabs (**Guide**, **Load**, **Cleaning**, **Feature Engineering**, **EDA**) accessible from a dark top navigation bar styled with the elegant Lux Bootstrap theme. All computation runs locally; there is no REST API or external backend, so user data never leaves the machine.
 
-**Deployed application:** [Deployment Link: _to be added upon deployment_]
+**Deployed application:** <https://019d23ea-1266-cada-1d21-45e5d97e6ea5.share.connect.posit.cloud/>
 
 **To run locally:** `pip install -r requirements.txt` then `shiny run app.py` and open http://127.0.0.1:8000.
 
