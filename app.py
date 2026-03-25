@@ -480,6 +480,11 @@ app_ui = ui.page_navbar(
                     "the browser — no coding required. Every operation is backed by pure "
                     "Python functions that run locally."
                 ),
+                ui.p(
+                    ui.strong("Group Members: "),
+                    "Zeming Liang (zl3688), Yuhan Guo (yg2695), "
+                    "Baixuan Chen (bc3212), Cecilia Zang (cz2957)",
+                ),
             ),
             col_widths=[12],
         ),
