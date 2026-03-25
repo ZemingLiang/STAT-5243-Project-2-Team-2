@@ -738,7 +738,9 @@ app_ui = ui.page_navbar(
                         "How to treat values outside the IQR fence boundaries",
                     ),
                     ui.input_numeric("clean_iqr", "IQR multiplier", 1.5, min=0.5, step=0.5),
-                    ui.tags.small({"class": "small-note"}, "1.5 = mild outliers, 3.0 = extreme outliers"),
+                    ui.tags.small({"class": "small-note"},
+                        "IQR = Q3 - Q1. Outliers lie beyond Q1 - k*IQR or Q3 + k*IQR. "
+                        "Use 1.5 for mild, 3.0 for extreme."),
                 ),
                 ui.panel_conditional(
                     "input.clean_action === 'standardize_text'",
@@ -958,6 +960,7 @@ app_ui = ui.page_navbar(
                 ui.card_header(ui.strong("1D Plot")),
                 ui.input_select("plot1d_column", "Column", {}),
                 ui.input_numeric("plot1d_bins", "Bins for numeric histogram", 30, min=5, max=100),
+                ui.tags.small({"class": "small-note"}, "More bins = finer detail; fewer = smoother shape"),
                 ui.input_checkbox("plot1d_normalize", "Normalize counts", False),
                 ui.input_checkbox("plot1d_logx", "Log-scale X", False),
                 ui.input_checkbox("plot1d_logy", "Log-scale Y", False),
@@ -1028,6 +1031,7 @@ app_ui = ui.page_navbar(
                 ui.input_select("multiline_value", "Value column", {}),
                 ui.input_select("multiline_group", "Group by", {}),
                 ui.input_numeric("multiline_bins", "Histogram bins", 20, min=5, max=80),
+                ui.tags.small({"class": "small-note"}, "Number of equal-width bins for grouping the distribution"),
                 ui.input_checkbox("multiline_normalize", "Normalize counts", False),
                 ui.input_action_button("render_multiline_btn", "Render Multiline",
                                        class_="btn-dark btn-sm"),
@@ -1534,7 +1538,9 @@ def server(input, output, session):
                 f"Filter applied to {target_key}. Rows: {len(df)} -> {len(filtered)}.",
             )
         except Exception as exc:
-            push_message("error", f"Filter failed: {exc}")
+            push_message("error",
+                f"Filter failed: {exc}. Check syntax — use == for equality, "
+                "& for AND, | for OR, and backticks for column names with spaces.")
 
     @reactive.effect
     @reactive.event(input.render_1d_btn)
