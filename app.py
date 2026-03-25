@@ -39,9 +39,9 @@ from shiny import App, reactive, render, ui
 from shinywidgets import output_widget, render_plotly
 import shinyswatch
 
-import EDA
+import eda as EDA
 import feature_engineering
-import p2_divided as cleaning
+import data_cleaning as cleaning
 
 
 # ---------------------------------------------------------------------------

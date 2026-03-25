@@ -9,12 +9,13 @@ This project is a single local **Shiny for Python** app. The UI imports and call
 | File | Purpose |
 |------|---------|
 | `app.py` | Shiny app entrypoint, UI layout, and server logic |
-| `EDA.py` | Summary, filtering, plotting, regression, and correlation functions |
-| `p2_divided.py` | Data loading, cleaning, scaling, encoding, and outlier handling |
+| `eda.py` | Summary, filtering, plotting, regression, and correlation functions |
+| `data_cleaning.py` | Data loading, cleaning, scaling, encoding, and outlier handling |
 | `feature_engineering.py` | 11 feature transforms (log, square, cube, interaction, ratio, etc.) |
-| `shiny_local_smoke_test.py` | Integration smoke tests |
+| `tests.py` | Integration smoke tests |
 | `test_data/` | Built-in dataset (Sleep/Mobile/Stress, 15,000 rows) |
 | `requirements.txt` | Python dependencies |
+| `REPORT.md` | Final project report (also available as `report.pdf`) |
 
 ## Quick Start
 
@@ -37,7 +38,7 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 ### 3. Run smoke tests
 
 ```bash
-python3 shiny_local_smoke_test.py
+python3 tests.py
 ```
 
 ## Features

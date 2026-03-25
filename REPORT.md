@@ -46,9 +46,9 @@ The app accepts **CSV, Excel (.xlsx/.xls), JSON, and RDS** uploads (with robust 
 
 | Team Member    | Contribution |
 |----------------|-------------|
-| Cecilia Zang   | Data cleaning and preprocessing backend (`p2_divided.py`): 7 operations with validation, error handling, and pipeline support |
+| Cecilia Zang   | Data cleaning and preprocessing backend (`data_cleaning.py`): 7 operations with validation, error handling, and pipeline support |
 | Baixuan Chen   | Feature engineering backend (`feature_engineering.py`): 11 transforms with formula tracking, metadata, and input validation |
-| Yuhan Guo      | EDA backend (`EDA.py`): summary functions, filtering, 5 plot families, regression analysis, and correlation matrix |
+| Yuhan Guo      | EDA backend (`eda.py`): summary functions, filtering, 5 plot families, regression analysis, and correlation matrix |
 | Zeming Liang   | Shiny UI and integration (`app.py`): application assembly, reactive wiring, Lux theme, tooltips, deployment, testing, and report |
 
 ## 5. Limitations and Future Work

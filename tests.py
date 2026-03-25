@@ -4,9 +4,9 @@ import unittest
 
 import pandas as pd
 
-import EDA
+import eda as EDA
 import feature_engineering
-import p2_divided as cleaning
+import data_cleaning as cleaning
 from app import app, load_builtin_dataset
 
 
