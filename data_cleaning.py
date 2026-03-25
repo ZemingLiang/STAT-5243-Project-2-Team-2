@@ -102,7 +102,7 @@ def load_json(filepath: str, **kwargs) -> pd.DataFrame:
     """
     try:
         return pd.read_json(filepath, **kwargs)
-    except ValueError as exc:
+    except Exception as exc:
         raise ValueError(
             f"Failed to parse JSON as a flat table: {exc}. "
             "Ensure the JSON file contains a flat array of records or a column-oriented object."
@@ -738,8 +738,8 @@ def load_rds(filepath: str, **kwargs) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-
-    raw = load_builtin_iris()
+    from sklearn.datasets import load_iris
+    raw = load_iris(as_frame=True).frame
     print("Raw shape:", raw.shape)
     print("Overview:", get_overview(raw))
 
