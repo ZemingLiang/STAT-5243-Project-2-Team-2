@@ -579,7 +579,7 @@ app_ui = ui.page_navbar(
                     ui.card_header(ui.strong("Upload Dataset")),
                     ui.input_file(
                         "upload_file",
-                        "Upload CSV, Excel, or JSON",
+                        "Upload CSV, Excel, JSON, or RDS",
                         accept=[".csv", ".xlsx", ".xls", ".json", ".rds"],
                     ),
                     ui.tooltip(

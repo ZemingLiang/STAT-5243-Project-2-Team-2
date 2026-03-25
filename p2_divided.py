@@ -52,7 +52,13 @@ def load_csv(filepath: str, **kwargs) -> pd.DataFrame:
     pd.DataFrame
         The loaded dataset.
     """
-    return pd.read_csv(filepath, **kwargs)
+    try:
+        return pd.read_csv(filepath, **kwargs)
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to parse CSV file: {exc}. "
+            "Ensure the file is a valid, UTF-8 encoded CSV."
+        ) from exc
 
 
 def load_excel(filepath: str, **kwargs) -> pd.DataFrame:
@@ -70,7 +76,13 @@ def load_excel(filepath: str, **kwargs) -> pd.DataFrame:
     pd.DataFrame
         The loaded dataset.
     """
-    return pd.read_excel(filepath, **kwargs)
+    try:
+        return pd.read_excel(filepath, **kwargs)
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to parse Excel file: {exc}. "
+            "Ensure the file is a valid .xlsx or .xls workbook."
+        ) from exc
 
 
 def load_json(filepath: str, **kwargs) -> pd.DataFrame:
@@ -700,10 +712,25 @@ def load_rds(filepath: str, **kwargs) -> pd.DataFrame:
     pd.DataFrame
         The loaded dataset.
     """
-    import pyreadr
-    result = pyreadr.read_r(filepath)
-    # RDS files contain a single R object; extract the first (and usually only) one
-    return list(result.values())[0]
+    try:
+        import pyreadr
+    except ImportError:
+        raise ImportError(
+            "RDS support requires the 'pyreadr' package. "
+            "Install it with: pip install pyreadr"
+        )
+    try:
+        result = pyreadr.read_r(filepath)
+        if not result:
+            raise ValueError("RDS file is empty or contains no readable R objects.")
+        return list(result.values())[0]
+    except ImportError:
+        raise
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to read RDS file: {exc}. "
+            "Ensure the file is a valid R .rds file."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
