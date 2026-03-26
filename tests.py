@@ -56,6 +56,25 @@ class LocalIntegrationSmokeTest(unittest.TestCase):
         self.assertIn("values", payload["data"])
         self.assertGreater(len(payload["data"]["columns"]), 1)
 
+    def test_knn_imputation(self) -> None:
+        # Introduce some NaN values to test k-NN imputation
+        df = self.df.copy()
+        df.loc[0:4, "age"] = None
+        result, warning = cleaning.knn_impute(df, ["age"], k=3)
+        self.assertIsInstance(result, pd.DataFrame)
+        # All NaN values in 'age' should be filled
+        self.assertEqual(result["age"].isnull().sum(), 0)
+
+    def test_custom_expression(self) -> None:
+        transformed, meta = feature_engineering.apply_feature_engineering_to_df(
+            self.df,
+            "custom_expr",
+            expr="age * 2 + stress_level",
+            new_column="test_custom",
+        )
+        self.assertIn("test_custom", transformed.columns)
+        self.assertEqual(meta["feature_type"], "custom_expr")
+
     def test_eda_plots(self) -> None:
         one_d = EDA.plot_numeric_1d(self.df, "age", bins=12)
         two_d = EDA.plot_two_columns(self.df, "age", "stress_level", kind="scatter")
