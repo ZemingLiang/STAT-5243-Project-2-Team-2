@@ -4,6 +4,8 @@
 
 **GitHub Repo:** <https://github.com/ZemingLiang/STAT-5243-Project-2-Team-2.git>
 
+**Group Members:** Zeming Liang (zl3688), Yuhan Guo (yg2695), Baixuan Chen (bc3212), Cecilia Zang (cz2957)
+
 Our application is an interactive data workbench built with **Shiny for Python**. It lets users load, clean, transform, and explore tabular datasets entirely in the browser — no coding required. The interface is organized into six tabs — **Guide**, **Load**, **Overview**, **Cleaning**, **Feature Engineering**, and **EDA** — accessible from a top navigation bar styled with the Lux Bootstrap theme. The tabs are not strictly sequential: users can visit Overview and EDA at any point to inform cleaning and feature-engineering decisions. All computation runs locally; there is no REST API or external backend, so user data never leaves the machine.
 
 **Deployed application:** <https://019d23ea-1266-cada-1d21-45e5d97e6ea5.share.connect.posit.cloud/>
