@@ -8,7 +8,7 @@ Target: ~7 minutes, 8 slides. Paste into Google Slides or Keynote; images live i
 
 - **STAT 5243 Project 3**
 - **A/B Test on Data-Cleaning UX**
-- Zeming Liang · Yuhan Guo · Baixuan Chen · Cecilia Zang
+- Bohong Zheng · Zeming Liang · Zuer Weng · Maya Rubin
 - April 2026
 - Columbia University
 

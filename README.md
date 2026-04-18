@@ -4,7 +4,7 @@
 
 **Project 3 Repo:** <https://github.com/ZemingLiang/STAT5243-Project3-Team21>
 
-**Group Members:** Zeming Liang (`zl3688`), Yuhan Guo (`yg2695`), Baixuan Chen (`bc3212`), Cecilia Zang (`cz2957`)
+**Group Members:** Bohong Zheng (`bz2575`), Zeming Liang (`zl3688`), Zuer Weng (`zw3118`), Maya Rubin (`mr4459`)
 
 ---
 

@@ -648,8 +648,8 @@ app_ui = ui.page_navbar(
                     "required. All computation runs locally through pure Python modules."
                 ),
                 ui.p(ui.strong("Group Members: "),
-                     "Zeming Liang (zl3688), Yuhan Guo (yg2695), "
-                     "Baixuan Chen (bc3212), Cecilia Zang (cz2957)"),
+                     "Bohong Zheng (bz2575), Zeming Liang (zl3688), "
+                     "Zuer Weng (zw3118), Maya Rubin (mr4459)"),
                 ui.tags.p(
                     {"class": "small-note",
                      "style": "margin-top: 8px; color: #64748b; font-style: italic;"},

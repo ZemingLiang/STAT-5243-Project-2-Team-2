@@ -2,7 +2,7 @@
 
 **GitHub Repo:** <https://github.com/ZemingLiang/STAT5243-Project3-Team21>
 
-**Group Members:** Zeming Liang (zl3688), Yuhan Guo (yg2695), Baixuan Chen (bc3212), Cecilia Zang (cz2957)
+**Group Members:** Bohong Zheng (bz2575), Zeming Liang (zl3688), Zuer Weng (zw3118), Maya Rubin (mr4459)
 
 **Deployed App (single URL, in-app randomization):** <https://019d23ea-1266-cada-1d21-45e5d97e6ea5.share.connect.posit.cloud/>
 
@@ -227,10 +227,10 @@ Practical takeaways:
 
 | Team Member | Contribution |
 |---|---|
-| **Zeming Liang** | Treatment app (`app_trt.py`): in-app A/B randomisation, event logger, guided Cleaning-tab UI (CTA box, contextual hints). Posit Cloud deployment. EDA slide deck. |
-| **Yuhan Guo** | Statistical analysis pipeline (`ab_analysis.py`), figures, power calculation. Carried forward the Project-2 EDA backend. |
-| **Baixuan Chen** | Feature-engineering backend kept consistent across arms. Synthetic seed-data generator for pipeline testing. |
-| **Cecilia Zang** | Cleaning backend kept consistent across arms. A/B unit tests in `tests.py` (log schema, randomisation balance, pipeline end-to-end). Report. |
+| **Zeming Liang** | Treatment app (`app_trt.py`): in-app A/B randomisation, event logger, guided Cleaning-tab UI (CTA box, contextual hints). Posit Cloud deployment. |
+| **Bohong Zheng** | Statistical analysis pipeline (`ab_analysis.py`), figures, ex-post power calculation. |
+| **Zuer Weng** | Feature-engineering and EDA backend consistency across arms. Synthetic seed-data generator for pipeline testing. EDA slide deck. |
+| **Maya Rubin** | Cleaning backend consistency across arms. A/B unit tests in `tests.py` (log schema, randomisation balance, pipeline end-to-end). Report assembly. |
 
 ## Appendix B. Reproducibility
 
