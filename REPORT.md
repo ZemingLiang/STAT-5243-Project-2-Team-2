@@ -227,10 +227,10 @@ Practical takeaways:
 
 | Team Member | Contribution |
 |---|---|
-| **Zeming Liang** | Treatment app (`app_trt.py`): in-app A/B randomisation, event logger, guided Cleaning-tab UI (CTA box, contextual hints). Posit Cloud deployment. |
+| **Zeming Liang** | Treatment app (`app_trt.py`): in-app A/B randomisation, event logger, guided Cleaning-tab UI (CTA box, contextual hints). Posit Cloud deployment. Feature-engineering and EDA backend consistency across arms. Synthetic seed-data generator for pipeline testing. EDA slide deck. |
 | **Bohong Zheng** | Statistical analysis pipeline (`ab_analysis.py`), figures, ex-post power calculation. |
-| **Zuer Weng** | Feature-engineering and EDA backend consistency across arms. Synthetic seed-data generator for pipeline testing. EDA slide deck. |
-| **Maya Rubin** | Cleaning backend consistency across arms. A/B unit tests in `tests.py` (log schema, randomisation balance, pipeline end-to-end). Report assembly. |
+| **Maya Rubin** | Cleaning backend consistency across arms. A/B unit tests in `tests.py` (log schema, randomisation balance, pipeline end-to-end). |
+| **Zuer Weng** | Report assembly. |
 
 ## Appendix B. Reproducibility
 
