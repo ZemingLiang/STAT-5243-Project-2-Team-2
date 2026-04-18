@@ -3,3 +3,10 @@ __pycache__/
 # Exclude assignment PDF but keep our report PDF
 Project*.pdf
 !report.pdf
+# Exclude private course documents
+grading rubic.png
+# Runtime and derived files
+ab_test_events.csv
+REPORT.filled.md
+*.md.bak
+

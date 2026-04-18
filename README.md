@@ -1,203 +1,156 @@
-# STAT 5243 Project 2 — Interactive Data Workbench
+# STAT 5243 Project 3 — A/B Test on Data-Cleaning UX
 
-**Deployed App:** <https://019d23ea-1266-cada-1d21-45e5d97e6ea5.share.connect.posit.cloud/>
+**Deployed App (single URL, in-app randomization):** <https://019d23ea-1266-cada-1d21-45e5d97e6ea5.share.connect.posit.cloud/>
+
+**Project 3 Repo:** <https://github.com/ZemingLiang/STAT5243-Project3-Team21>
 
 **Group Members:** Zeming Liang (`zl3688`), Yuhan Guo (`yg2695`), Baixuan Chen (`bc3212`), Cecilia Zang (`cz2957`)
 
 ---
 
-## Overview
+## What this project is
 
-An interactive, code-free data workbench built with **Shiny for Python**. Users can load, clean, transform, and explore tabular datasets entirely in the browser. The app is organized into six tabs — **Guide**, **Load**, **Overview**, **Cleaning**, **Feature Engineering**, and **EDA** — with a polished Lux Bootstrap theme, per-tab dataset pickers, user instruction cards, and a full dataset version history.
+For STAT 5243 Project 3 we ran an A/B test on the **Cleaning tab** of the data-workbench web app we built in Project 2. The research question:
 
-The tabs are **not** strictly sequential. Overview and EDA can be visited at any point to support cleaning and feature-engineering decisions. The workflow is flexible by design.
+> *Does a guided four-step workflow layout with a prominent "Preview, then Save" CTA improve users' preview-before-apply behaviour, compared to the original flat Preview/Apply button layout?*
 
-All computation runs locally through pure Python module imports. There is no Flask, no REST API, and no external backend — user data never leaves the machine.
-
----
-
-## Quick Start
-
-### 1. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-Requires **Python >= 3.10**.
-
-### 2. Run the app
-
-```bash
-shiny run app.py
-```
-
-Then open [http://127.0.0.1:8000](http://127.0.0.1:8000).
-
-### 3. Run smoke tests
-
-```bash
-python3 tests.py
-```
-
-All 7 tests should pass (imports, built-in loaders, cleaning, feature engineering, EDA summaries, EDA plots, correlation matrix).
+See [REPORT.md](REPORT.md) / [report.pdf](report.pdf) for the full write-up (research question, methodology, data-collection plan, statistical analysis, interpretation, limitations).
 
 ---
 
-## Repository Structure
+## How the A/B test is set up
+
+Both arms live inside **one app** (`app_trt.py`). When a new browser session opens the app, the server assigns the session to Group A or Group B uniformly at random, then renders the Cleaning-tab UI conditional on that assignment. All other tabs (Guide, Load, Overview, Feature Engineering, EDA) are identical across arms.
+
+| | Version A (Control) | Version B (Treatment) |
+|---|---|---|
+| Cleaning tab layout | Original flat layout | 4-step guided workflow |
+| Primary buttons | `Preview` (outline dark), `Apply` (dark) | `Preview Changes` (blue primary), `Apply and Save` (green success), inside a "Step 4 — Preview, then save" CTA box |
+| Contextual hints | None | Action-specific hint lines that change with the selected operation |
+| Version badge | `Version A / Control` | `Version B / Guided` |
+
+Every Preview or Apply click writes one row to `ab_test_events.csv` (append-only, see schema below). The analysis pipeline reads that file and produces the results tables and figures used in the report.
+
+### Event schema (`ab_test_events.csv`)
+
+| Column | Description |
+|---|---|
+| `timestamp` | Event time (server-local, second granularity) |
+| `session_id` | UUID4 unique per browser session |
+| `ab_group` | `A` or `B` |
+| `event_type` | `preview_clean` or `apply_clean` |
+| `clean_action` | Cleaning operation: `handle_missing`, `remove_duplicates`, `scale_columns`, `encode_columns`, `handle_outliers`, `standardize_text`, `coerce_types`, … |
+| `dataset_key` | Descriptive key of the dataset being cleaned |
+| `columns_count` | Number of columns selected at click time |
+| `success` | `True` / `False` / `""` (blank if undetermined) |
+| `seconds_since_session_start` | Wall-clock seconds since the session opened |
+| `details` | Free-form summary or exception text |
+
+---
+
+## Repository structure
 
 | File | Purpose |
-|------|---------|
-| `app.py` | Shiny app entrypoint — UI layout and server logic (6 tabs, per-tab dataset pickers, reactive versioning) |
-| `eda.py` | EDA backend — summary tables, pandas query filtering, 6 plot families, correlation matrix |
-| `data_cleaning.py` | Cleaning backend — 9 operations including k-NN imputation, validation, and pipeline support |
-| `feature_engineering.py` | Feature engineering backend — 12 transforms including custom algebraic expressions |
-| `tests.py` | Integration smoke tests — 7 test cases covering all modules |
-| `test_data/` | Built-in dataset: Sleep, Mobile and Stress (15,000 rows, 13 columns) |
-| `requirements.txt` | All Python dependencies (13 packages) |
-| `REPORT.md` | Final project report (markdown source) |
-| `report.pdf` | Final project report (PDF) |
+|---|---|
+| `app_trt.py` | **Project 3 treatment app** — single Shiny app that randomly assigns each session to Group A or B and logs events |
+| `app.py` | Project 2 control app (kept unchanged for comparison / rollback) |
+| `ab_analysis.py` | A/B statistical-analysis pipeline — per-session metrics aggregation, Welch's t-test, Mann-Whitney U, two-proportion z-test, Cohen's d, 95 % bootstrap CIs, Bonferroni correction, figure generation |
+| `ab_seed_generator.py` | Generates synthetic seed data for pipeline testing and demo |
+| `eda.py`, `data_cleaning.py`, `feature_engineering.py` | Shared backend modules (identical across arms) |
+| `tests.py` | Unit + A/B tests — schema, randomisation balance, metric aggregation, compare_groups on planted effect |
+| `test_data/sleep_mobile_stress_dataset_15000.csv` | Built-in dataset used for the Cleaning workflow |
+| `requirements.txt` | All Python dependencies |
+| `REPORT.md` / `report.pdf` | Final report (6 required sections) |
+| `slides_outline.md` | EDA slide outline for the team presentation |
+| `figures/` | Analysis figures (regenerated by `ab_analysis.py`) |
+| `ab_test_events.csv` | Append-only event log (not committed — generated at runtime) |
 
 ---
 
-## Features
+## Quick start
 
-### 1. Data Loading
+### 1. Install
 
-- Upload **CSV, Excel (.xlsx/.xls), JSON, and RDS** files with robust error handling
-- **3 built-in datasets:** Sleep/Mobile/Stress (15,000 rows), Iris (150 rows), Tips (244 rows)
-- **Conflict resolution:** if more than one source dataset is loaded, a modal dialog prompts the user to choose one; all other datasets are removed so subsequent work starts from a single clean source
-- Full **dataset version history** — every load, clean, or transform creates a descriptively named version; switch to any previous version via the Load tab picker
+```bash
+git clone https://github.com/ZemingLiang/STAT5243-Project3-Team21.git
+cd STAT5243-Project3-Team21
+pip install -r requirements.txt      # Python ≥ 3.10
+```
 
-### 2. Overview (new)
+### 2. Run the A/B app locally
 
-A quick decision-support summary shown between Load and Cleaning, designed to inform cleaning and feature-engineering choices before diving in:
+```bash
+shiny run app_trt.py
+```
 
-- **Missing Value Overview** — table of columns with missing values, counts, and percentages
-- **Duplicate Overview** — count of fully duplicate rows with example rows; "No duplicate detected" if none
-- **Scale Review** — min, max, and mean for every numeric column in tabular form
-- Reminder that EDA provides in-depth analysis and can be consulted at any time
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Refresh the browser to re-roll the group. The Cleaning tab's side panel shows the current group badge. Any Preview / Apply click in the Cleaning tab appends a row to `ab_test_events.csv` in the repo root.
 
-### 3. Data Cleaning and Preprocessing
+### 3. Run the analysis
 
-- **9 operations:** handle missing values, remove duplicates, scale numeric columns, encode categorical columns, detect and handle outliers, standardize text, coerce column types
-- **k-NN imputation (new, default):** fills missing values using k nearest neighbors computed from other numeric columns. Automatically selects feature columns with ≥ 80 % valid values in the rows to be imputed. Issues a warning if fewer than 50 % of rows can be matched. Configurable `k` parameter (default 5)
-- **Drop Rows/Cols fix:** now requires at least one column to be selected — prevents accidentally dropping rows across all columns
-- **Single column selector** for outlier handling is hidden for all other actions, eliminating ambiguity
-- **Per-tab dataset picker:** choose which saved version to clean from the sidebar, independently of the Load tab
-- **User instruction card** at the top of the Cleaning tab with EDA/Overview cross-references
-- **Default save mode** is "Apply to current version" (overwrite in place); switch to "Save as derived version" to branch a new named copy
-- **Preview-then-apply workflow** with before/after comparison charts
+```bash
+# on real collected data
+python ab_analysis.py ab_test_events.csv --out figures/ --seed 20260418
 
-### 4. Feature Engineering
+# or on the synthetic seed data, to verify the pipeline end-to-end
+python ab_seed_generator.py --n 200 --out ab_test_events_synthetic.csv
+python ab_analysis.py ab_test_events_synthetic.csv --out figures/
+```
 
-- **12 transforms:** log (log1p), square, cube, interaction (col1 × col2), ratio (col1 / col2), binning, one-hot encoding, standardize (z-score), normalize (min-max), fill NA, drop NA, **custom algebraic expression (new)**
-- **Custom New Column:** enter any pandas-eval expression (e.g., `(price - cost) / price`) to create a new column; errors for non-existent columns or invalid syntax are reported immediately
-- **Per-tab dataset picker:** choose which saved version to transform
-- **User instruction card** with EDA cross-references
-- **Descriptive version names:** derived datasets are named to encode the operation — e.g., `log_Age_01`, `expr_margin_01`
+The analysis prints a summary table to stdout and writes figures to `figures/`.
 
-### 5. Exploratory Data Analysis (EDA)
+### 3b. One-shot: analyse + fill `REPORT.md` with real numbers
 
-- **Per-tab dataset picker:** choose which version to analyze for each operation independently
-- **User instruction card** reminding users that EDA is useful at every stage, not just after cleaning
-- **Summary tables:**
-  - Data preview (adjustable row count)
-  - **Describe — Numeric:** count, mean, std, min, 25 %, 50 %, 75 %, max (numeric columns only)
-  - **Describe — Categorical:** count, unique, top, freq (categorical columns only)
-  - Column types
-- **Free-text pandas query filtering** with improved error guidance: wrap each condition in parentheses before combining, e.g. `("col_cat" == "sex") & ("col_num" >= 5)`
-- **1D plots:** histograms and categorical bar charts with log-scale toggles, normalization, and persistent statistics (mean, median, std, skewness, kurtosis)
-- **2D plots:** scatter, line, bar, box, heatmap, 2D histogram with optional color grouping
-- **Regression analysis:** polynomial (order 1–5), robust, and LOWESS with Pearson r, R², and p-value
-- **Multiline grouped plots** for cross-category distribution comparison
-- **Correlation matrix heatmap** (Pearson, Spearman, Kendall) with annotated values
+REPORT.md contains `{placeholder}` tokens for every number that comes from the event log. To fill them in one command:
 
-### 6. Non-Linear Workflow Philosophy
+```bash
+python ab_analysis.py ab_test_events.csv --out figures/ \
+       --fill-template REPORT.md --fill-out REPORT.filled.md
+pandoc REPORT.filled.md -o report.pdf --pdf-engine=xelatex \
+       -V mainfont="Helvetica Neue" -V monofont=Menlo --toc --toc-depth=2
+```
 
-The tabs are not a rigid pipeline. Users are encouraged to:
+This substitutes every `{mu_A_1}`, `{p_1_adj}`, `{N_A}`, etc. with the freshly computed value, auto-drafts the §5 interpretation paragraph from the results, and regenerates `report.pdf`. Unmatched placeholders are printed at the end so you know what still needs a human edit.
 
-- Visit **Overview** and **EDA** before and during cleaning to understand column distributions and scales
-- Jump to **EDA → 1D Plot** to visualize outliers before deciding on an outlier strategy in Cleaning
-- Use **EDA → Correlation Matrix** before Feature Engineering to identify redundant columns
-- Apply cleaning or feature engineering operations on any saved version using the per-tab pickers, not just the most recent one
+### 4. Run the tests
 
-### 7. Descriptive Dataset Version Names
+```bash
+python tests.py
+```
 
-Derived datasets are named to encode the operation performed, making it easy to track versions:
-
-| Operation | Example key |
-|-----------|-------------|
-| k-NN impute column `Age` | `knn_Age_01` |
-| Drop rows for column `Income` | `dropr_Income_01` |
-| Scale with Min-Max | `scl_mm_ColA_01` |
-| One-hot encode `Gender` | `enc_ohe_Gender_01` |
-| Log transform `Price` | `log_Price_01` |
-| Custom expression, new col `margin` | `expr_margin_01` |
-| Filter `age >= 5` | `filt_age_geq_5_01` |
-| Filter `(age >= 5) & (type == "race")` | `filt_age_geq_5_type_eq_race_01` |
-
-### 8. UI/UX
-
-- **Lux Bootstrap theme** (shinyswatch) with custom CSS — gradient metric cards, instruction boxes, tip boxes
-- **User instruction cards** on Cleaning, Feature Engineering, and EDA tabs with cross-tab references
-- **20+ tooltips** throughout
-- **Sidebar layouts** in Cleaning and Feature Engineering (collapsible on mobile)
-- **Full-screen expandable cards** for all plots and tables
-- **Busy indicators** during computations
-
-### 9. Export
-
-- **CSV download buttons** on the Load, Cleaning, and Feature Engineering tabs
+Includes the original Project-2 integration smoke tests plus a new `TestABLogging` / `TestABAnalysis` suite covering log-writer schema, randomisation balance over 1 000 draws, session-metrics aggregation, and a detection test on planted-effect synthetic data.
 
 ---
 
-## Tech Stack
+## How to read the metrics
 
-| Component | Technology |
-|-----------|-----------|
-| Framework | Shiny for Python 1.0+ |
-| Theme | shinyswatch (Lux Bootstrap) |
-| Plotting | Plotly (with ScatterGL for large datasets) |
-| Data | pandas, numpy |
-| ML/Stats | scikit-learn (scalers, encoders), statsmodels (robust/LOWESS), scipy (pearsonr) |
-| File I/O | openpyxl (Excel), pyreadr (RDS), seaborn (Tips dataset) |
-| Testing | unittest (7 integration tests) |
+| Metric | What it measures | Why it matters |
+|---|---|---|
+| `apply_rate` (primary) | applies / (applies + previews) per session | A lower apply_rate means users lean on preview more — the goal of the guided CTA |
+| `preview_to_apply_conversion` | share of sessions with ≥1 preview that also had ≥1 apply | Whether the guided layout keeps users engaged through to action |
+| `apply_success_rate` | successful applies / total applies per session | Whether the guided layout reduces error clicks |
+| `successful_actions_per_session` | total successful apply events per session | Overall productivity in the Cleaning tab |
 
----
-
-## Branch History (Development Log)
-
-The finalized submission lives on **`Main-Final-Deliverables`** (the default branch).
-
-| Branch | Owner | Purpose |
-|--------|-------|---------|
-| `Main-Final-Deliverables` | Zeming Liang | Final integrated app — all modules merged, polished, and submission-ready |
-| `Feature-Engineering` | Baixuan Chen | Development of the 11 feature transforms (`feature_engineering.py`) |
-| `Data-Loading-Cleaning-Preprocessing` | Cecilia Zang | Development of the cleaning and preprocessing module (`data_cleaning.py`) |
-| `Exploratory-Data-Analysis` | Yuhan Guo | Development of the EDA backend (`eda.py`) |
+Family-wise α = 0.05, Bonferroni-corrected over 4 tests → per-test threshold 0.0125.
 
 ---
 
-## Team Contributions
+## Limitations (summary — see [REPORT.md §6](REPORT.md) for full discussion)
 
-| Team Member | Contribution |
-|-------------|-------------|
-| **Cecilia Zang** | Data cleaning and preprocessing backend (`data_cleaning.py`): 9 operations including k-NN imputation |
-| **Baixuan Chen** | Feature engineering backend (`feature_engineering.py`): 12 transforms including custom expressions |
-| **Yuhan Guo** | EDA backend (`eda.py`): summary functions, filtering, 6 plot families, regression, correlation |
-| **Zeming Liang** | Shiny UI and integration (`app.py`): application assembly, Overview tab, per-tab pickers, Lux theme, deployment, testing |
+- Randomisation is session-scoped, not user-scoped (no cookie or URL param).
+- Sample is self-selected (classmates and personal networks).
+- Only the Cleaning tab is instrumented — other tabs are not part of the experiment.
+- One-second timestamp granularity.
+- Single experimental run; no A/A control arm.
 
 ---
 
 ## Troubleshooting
 
 | Problem | Solution |
-|---------|----------|
-| `ModuleNotFoundError` | Run `pip install -r requirements.txt` |
-| Port already in use | Use `shiny run app.py --port 8765` |
-| seaborn cache error | The app uses `sklearn.datasets.load_iris()` for Iris to avoid cache issues |
-| RDS upload fails | Ensure `pyreadr` is installed: `pip install pyreadr` |
-| Filter syntax error | Wrap each condition in parentheses: `("col_cat" == "val") & ("col_num" >= 5)`. Use `==` for equality, backticks for column names with spaces |
-| k-NN imputation error | No valid feature columns — check Overview → Scale Review for numeric columns; try scaling first |
-| Custom expression error | Check column names match exactly; use backticks for names with spaces: `` `column name` `` |
+|---|---|
+| `ModuleNotFoundError` | `pip install -r requirements.txt` |
+| Port in use | `shiny run app_trt.py --port 8765` |
+| `ab_test_events.csv` not appearing | It's created on first Preview/Apply click in the Cleaning tab. Check the repo root directory. |
+| Empty results in `ab_analysis.py` | Check that `ab_test_events.csv` has at least one row per group |
+| RDS upload fails | `pip install pyreadr` |
+| Filter syntax error in EDA | Wrap each condition in parentheses: `("col_cat" == "val") & ("col_num" >= 5)` |
