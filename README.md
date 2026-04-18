@@ -52,8 +52,9 @@ Every Preview or Apply click writes one row to `ab_test_events.csv` (append-only
 
 | File | Purpose |
 |---|---|
-| `app_trt.py` | **Project 3 treatment app** — single Shiny app that randomly assigns each session to Group A or B and logs events |
-| `app.py` | Project 2 control app (kept unchanged for comparison / rollback) |
+| `app.py` | Posit Cloud entry point (thin shim that re-exports from `app_trt.py` so the existing deployment serves the A/B experiment without reconfiguration) |
+| `app_trt.py` | **Project 3 A/B harness** — single Shiny app that randomly assigns each session to Group A or B and logs events |
+| `app_project2_reference.py` | Preserved Project-2 control app, unchanged for historical reference |
 | `ab_analysis.py` | A/B statistical-analysis pipeline — per-session metrics aggregation, Welch's t-test, Mann-Whitney U, two-proportion z-test, Cohen's d, 95 % bootstrap CIs, Bonferroni correction, figure generation |
 | `ab_seed_generator.py` | Generates synthetic seed data for pipeline testing and demo |
 | `eda.py`, `data_cleaning.py`, `feature_engineering.py` | Shared backend modules (identical across arms) |
@@ -80,7 +81,7 @@ pip install -r requirements.txt      # Python ≥ 3.10
 ### 2. Run the A/B app locally
 
 ```bash
-shiny run app_trt.py
+shiny run app.py      # or: shiny run app_trt.py — app.py is a thin shim
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Refresh the browser to re-roll the group. The Cleaning tab's side panel shows the current group badge. Any Preview / Apply click in the Cleaning tab appends a row to `ab_test_events.csv` in the repo root.
