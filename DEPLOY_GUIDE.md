@@ -95,6 +95,18 @@ If **both** windows show the same layout, keep refreshing one of them
 see the other layout. The assignment is 50/50 random per session, so
 you should hit both arms within ~3–4 tries.
 
+**Team-only testing shortcut.** Tired of playing the 50/50 lottery?
+Append a URL parameter to force a specific arm:
+
+- Force Group A: `https://zemingliang-stat-5243-project-3-team-21.share.connect.posit.cloud/?force_group=A`
+- Force Group B: `https://zemingliang-stat-5243-project-3-team-21.share.connect.posit.cloud/?force_group=B`
+
+Open both URLs in any browser — no incognito needed — and compare the
+Cleaning tab side-by-side. Do NOT share these URLs publicly; only the
+clean URL (without the parameter) should go to classmates / Reddit.
+Real users who visit the clean URL get the random 50/50 assignment as
+designed, so blinding is preserved.
+
 **What you should NOT see anywhere on the page:**
 - The text "Version A / Control"
 - The text "Version B / Guided"

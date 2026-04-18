@@ -12,6 +12,7 @@ import csv
 import random
 import re
 import uuid
+from urllib.parse import parse_qs
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -1391,6 +1392,23 @@ def server(input, output, session):
     ab_group_state = reactive.value(random.choice(["A", "B"]))
     session_id = str(uuid.uuid4())
     cleaning_entry_time = reactive.value(datetime.now())
+
+    # Team-only override: visiting the app with ?force_group=A or
+    # ?force_group=B in the URL pins that session to the specified arm.
+    # Useful when team members want to screenshot or verify a specific
+    # layout without refreshing incognito windows until the coin lands.
+    # Real users won't know this parameter exists (it's not surfaced in
+    # the UI or sharing copy), so blinding is preserved.
+    @reactive.effect
+    def _honor_force_group_url_param():
+        try:
+            query_str = input[".clientdata_url_search"]() or ""
+        except Exception:
+            return
+        params = parse_qs(query_str.lstrip("?"))
+        forced = (params.get("force_group", [""])[0] or "").strip().upper()
+        if forced in {"A", "B"} and ab_group_state.get() != forced:
+            ab_group_state.set(forced)
 
     cleaning_preview_df = reactive.value(pd.DataFrame())
     cleaning_preview_meta = reactive.value("")
