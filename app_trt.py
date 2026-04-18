@@ -59,6 +59,9 @@ pio.templates.default = "app_theme"
 BASE_DIR = Path(__file__).resolve().parent
 TEST_DATA_PATH = BASE_DIR / "test_data" / "sleep_mobile_stress_dataset_15000.csv"
 AB_LOG_PATH = BASE_DIR / "ab_test_events.csv"
+# Team-only gate for downloading the event log. Not security-critical; just
+# keeps random visitors from grabbing the file.
+AB_ADMIN_PASSWORD = "team21-cleaning-ab"
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +650,14 @@ app_ui = ui.page_navbar(
                 ui.p(ui.strong("Group Members: "),
                      "Zeming Liang (zl3688), Yuhan Guo (yg2695), "
                      "Baixuan Chen (bc3212), Cecilia Zang (cz2957)"),
+                ui.tags.p(
+                    {"class": "small-note",
+                     "style": "margin-top: 8px; color: #64748b; font-style: italic;"},
+                    "This app is part of a Columbia STAT 5243 class research project. "
+                    "Anonymous session interaction events (no personal data, no uploaded file content) "
+                    "are logged for the analysis. By using the app you consent to this "
+                    "research-purposes logging.",
+                ),
             ),
             col_widths=[12],
         ),
@@ -745,6 +756,21 @@ app_ui = ui.page_navbar(
                 "Cleaning and Feature Engineering both have a Preview button. "
                 "Always preview before applying.",
             ),
+        ),
+        ui.accordion(
+            ui.accordion_panel(
+                "Team only — download A/B event log",
+                ui.tags.p(
+                    {"class": "small-note"},
+                    "Team members: enter the team password to reveal the download button for ",
+                    ui.tags.code("ab_test_events.csv"),
+                    ". Others can ignore this section.",
+                ),
+                ui.input_password("admin_pwd", "Team password", placeholder="•••••••"),
+                ui.output_ui("admin_download_area"),
+            ),
+            id="guide_admin",
+            open=False,
         ),
     ),
 
@@ -1385,24 +1411,32 @@ def server(input, output, session):
 
     def log_ab_event(event_type: str, *, success: bool | None = None,
                      details: str = "") -> None:
-        row = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "session_id": session_id,
-            "ab_group": ab_group_state.get(),
-            "event_type": event_type,
-            "clean_action": (input.clean_action() if hasattr(input, "clean_action") else None) or "",
-            "dataset_key": (input.clean_df_picker() if hasattr(input, "clean_df_picker") and input.clean_df_picker() else ""),
-            "columns_count": len(list(input.clean_columns() or [])) if hasattr(input, "clean_columns") else 0,
-            "success": "" if success is None else str(bool(success)),
-            "seconds_since_session_start": round((datetime.now() - cleaning_entry_time.get()).total_seconds(), 3),
-            "details": details,
-        }
-        file_exists = AB_LOG_PATH.exists()
-        with AB_LOG_PATH.open("a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=list(row.keys()))
-            if not file_exists:
-                writer.writeheader()
-            writer.writerow(row)
+        # Degrade silently on any I/O error: the user's action must not crash
+        # if the log file is unwritable (read-only filesystem, disk full, etc.).
+        try:
+            row = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "session_id": session_id,
+                "ab_group": ab_group_state.get(),
+                "event_type": event_type,
+                "clean_action": (input.clean_action() if hasattr(input, "clean_action") else None) or "",
+                "dataset_key": (input.clean_df_picker() if hasattr(input, "clean_df_picker") and input.clean_df_picker() else ""),
+                "columns_count": len(list(input.clean_columns() or [])) if hasattr(input, "clean_columns") else 0,
+                "success": "" if success is None else str(bool(success)),
+                "seconds_since_session_start": round((datetime.now() - cleaning_entry_time.get()).total_seconds(), 3),
+                "details": details,
+            }
+            file_exists = AB_LOG_PATH.exists()
+            with AB_LOG_PATH.open("a", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(row)
+        except Exception:
+            # Swallow — a logging failure should never block the experiment's
+            # user-facing flow. No push_message here either, so users aren't
+            # alerted that the experiment exists.
+            pass
 
     def push_message(level: str, text: str) -> None:
         items = list(messages_state.get())
@@ -1430,20 +1464,16 @@ def server(input, output, session):
     @output
     @render.ui
     def cleaning_sidebar_intro():
+        # Blinded: do not label the user's arm. The treatment effect in B comes
+        # from the layout + CTA box below, not from telling the user they are
+        # in a "Version B / Guided" condition.
         group = ab_group_state.get()
+        tip_text = "Tip: use the Preview button to see the before/after impact before applying changes."
         if group == "A":
-            return ui.div(
-                {"class": "small-note"},
-                ui.tags.span({"class": "ab-badge"}, "Version A / Control"),
-                ui.tags.div({"style": "margin-top:8px;"}, "This version keeps the original Cleaning interface."),
-            )
+            return ui.div({"class": "small-note"}, tip_text)
         return ui.div(
             {"class": "clean-version-panel"},
-            ui.tags.span({"class": "ab-badge"}, "Version B / Guided"),
-            ui.tags.p(
-                {"class": "small-note", "style": "margin-top:8px; margin-bottom:0;"},
-                "This version highlights a four-step workflow and emphasizes the key action buttons for the A/B test.",
-            ),
+            ui.tags.p({"class": "small-note", "style": "margin: 0;"}, tip_text),
         )
 
     @output
@@ -1533,10 +1563,9 @@ def server(input, output, session):
                 ui.card_header(ui.strong("Current Task Hint")),
                 ui.div(
                     {"class": "instr-box"},
-                    ui.tags.p(
-                        ui.strong("Assigned version: "),
-                        "B (guided treatment). This version keeps the cleaning logic unchanged but makes the workflow more explicit for the experiment.",
-                    ),
+                    # Blinded: removed the explicit "Assigned version: B
+                    # (guided treatment)" line. The guided-workflow cards above
+                    # are the intervention; users do not need to be told.
                     ui.tags.p(cleaning_action_hint(input.clean_action() if hasattr(input, "clean_action") else None)),
                     ui.tags.p(
                         {"class": "small-note mb-0"},
@@ -2361,6 +2390,35 @@ def server(input, output, session):
         df = feature_preview_df.get()
         if not df.empty:
             yield df.to_csv(index=False)
+
+    # ── Admin: A/B event log retrieval (password-gated) ─────────────────
+    @output
+    @render.ui
+    def admin_download_area():
+        if input.admin_pwd() != AB_ADMIN_PASSWORD:
+            return ui.tags.small(
+                {"class": "small-note"},
+                "Enter the team password above to reveal the export link.",
+            )
+        if not AB_LOG_PATH.exists():
+            return ui.tags.small(
+                {"class": "small-note"},
+                "Password accepted, but the event log does not exist yet "
+                "(no sessions have logged any clean-tab events).",
+            )
+        return ui.download_button(
+            "download_ab_events",
+            f"Download ab_test_events.csv",
+            class_="btn-dark",
+        )
+
+    @render.download(filename="ab_test_events.csv")
+    def download_ab_events():
+        if input.admin_pwd() != AB_ADMIN_PASSWORD:
+            return
+        if not AB_LOG_PATH.exists():
+            return
+        yield AB_LOG_PATH.read_bytes()
 
     # ── Render outputs ──────────────────────────────────────────────────
 

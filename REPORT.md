@@ -76,9 +76,11 @@ All metrics are computed at the session level (one observation per `session_id`)
 
 **Effect size.** Cohen's *d* for continuous metrics; absolute and relative lift for the binary metric. Ninety-five-percent confidence intervals on the effect are estimated by 10 000 bootstrap resamples.
 
-### 2.5 Event schema and logging
+### 2.5 Event schema, blinding, and retrieval
 
-Every preview or apply click writes one row to `ab_test_events.csv` (plain CSV, append-only). Schema:
+**Blinding.** Users are not told which arm they are in. The `ab_group` is kept in server-side state and written only to the log. The Cleaning-tab sidebar shows the same neutral "Preview before applying" tip to both arms; the treatment manifests only as the guided four-step layout and the prominent CTA box, not as a label. This eliminates the demand-characteristics risk of telling users they are a "Control" or a "Treatment".
+
+**Logging.** Every preview or apply click writes one row to `ab_test_events.csv` (plain CSV, append-only). The writer is wrapped in try/except so that an I/O failure degrades silently and never crashes the user's action. Schema:
 
 | Column | Type | Notes |
 |---|---|---|
@@ -92,6 +94,10 @@ Every preview or apply click writes one row to `ab_test_events.csv` (plain CSV, 
 | `success` | `True` / `False` / `""` | `""` if the operation has not yet resolved |
 | `seconds_since_session_start` | float | wall-clock seconds since the session opened the Cleaning tab |
 | `details` | free-form string | summary message or exception text |
+
+**Retrieval.** The event CSV lives on the Posit Cloud container's filesystem. The Guide tab exposes a collapsible "Team only — download A/B event log" accordion, gated by a shared password, that yields the current log via a standard Shiny download handler. Only the team members who know the password can retrieve the file, and the download is a no-op when the log does not yet exist. This lets the team pull periodic snapshots without relying on Posit Cloud's container-level file access.
+
+**Consent.** The Guide tab carries a short notice ("This app is part of a Columbia STAT 5243 class research project. Anonymous session interaction events (no personal data, no uploaded file content) are logged for the analysis. By using the app you consent to this research-purposes logging.") so users shared the link from Reddit, LinkedIn, and WeChat are informed that usage is being logged.
 
 ---
 

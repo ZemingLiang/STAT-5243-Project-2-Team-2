@@ -98,6 +98,18 @@ python ab_analysis.py ab_test_events_synthetic.csv --out figures/
 
 The analysis prints a summary table to stdout and writes figures to `figures/`.
 
+### 3a. Team only — retrieve `ab_test_events.csv` from the deployed app
+
+The deployed app on Posit Cloud writes events to a server-side CSV. To pull the log back to your laptop:
+
+1. Open the deployed URL.
+2. Go to the **Guide** tab → scroll to the bottom → expand **"Team only — download A/B event log"**.
+3. Enter the team password: `team21-cleaning-ab`.
+4. A "Download ab_test_events.csv" button appears — click to save the file.
+5. Place the downloaded CSV next to `ab_analysis.py` in the repo (default name `ab_test_events.csv`).
+
+Note: the accordion is visible to everyone, but the download only reveals itself after the correct password is entered. This keeps random visitors from grabbing raw event data. Re-pull periodically during the collection window so you have a local snapshot in case the Posit Cloud container restarts.
+
 ### 3b. One-shot: analyse + fill `REPORT.md` with real numbers
 
 REPORT.md contains `{placeholder}` tokens for every number that comes from the event log. To fill them in one command:

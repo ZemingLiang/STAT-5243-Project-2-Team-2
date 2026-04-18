@@ -276,6 +276,41 @@ class ABFillReportTest(unittest.TestCase):
             self.assertEqual(leftovers, [], msg=f"Leftover tokens: {leftovers}")
 
 
+class ABAdminDownloadTest(unittest.TestCase):
+    """Contract test for the password-gated event-log download.
+
+    The Shiny server logic is hard to exercise directly without a running
+    browser session. Instead we check the contract the code depends on:
+    a non-empty password constant exists, the server references it when
+    gating the download, and the handler refuses to yield bytes without it.
+    """
+
+    def test_admin_password_constant_exists(self) -> None:
+        import app_trt
+        self.assertTrue(hasattr(app_trt, "AB_ADMIN_PASSWORD"))
+        self.assertIsInstance(app_trt.AB_ADMIN_PASSWORD, str)
+        self.assertGreater(len(app_trt.AB_ADMIN_PASSWORD), 6,
+                           msg="Password must be non-trivial")
+
+    def test_download_handler_checks_password(self) -> None:
+        """Both the UI renderer and the download handler must gate on the password."""
+        source = Path(__file__).parent.joinpath("app_trt.py").read_text()
+        self.assertIn("admin_pwd", source)
+        self.assertIn("AB_ADMIN_PASSWORD", source)
+        # The download handler must check the password and return early otherwise
+        import re
+        handler_match = re.search(
+            r"def download_ab_events\(\):(.*?)(?=\n    @|\n    def )",
+            source, re.DOTALL
+        )
+        self.assertIsNotNone(handler_match, msg="download_ab_events handler not found")
+        body = handler_match.group(1)
+        self.assertIn("AB_ADMIN_PASSWORD", body,
+                      msg="download_ab_events must guard on the password")
+        self.assertIn("return", body,
+                      msg="download_ab_events must early-return when password is wrong")
+
+
 def _evt(session_id, group, event_type, *, success, sec):
     return {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
