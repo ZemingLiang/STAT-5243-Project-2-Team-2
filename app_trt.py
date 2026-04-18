@@ -64,6 +64,359 @@ AB_LOG_PATH = BASE_DIR / "ab_test_events.csv"
 # keeps random visitors from grabbing the file.
 AB_ADMIN_PASSWORD = "team21-cleaning-ab"
 
+# Dramatic visual makeover applied only to the Cleaning tab for Group B.
+# The experimental intervention is still the guided-cleaning UX; this CSS
+# is the *full* treatment package — dark gradient theme, glass-morphism
+# cards, pill-shaped gradient buttons, custom typography. Applied as an
+# injected <style> tag rendered only for sessions with ab_group == "B".
+GROUP_B_DRAMATIC_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap');
+
+#cleaning-tab-content {
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #581c87 100%);
+  color: #f5f3ff;
+  padding: 28px;
+  border-radius: 20px;
+  margin-top: 8px;
+  min-height: 85vh;
+  font-family: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+}
+#cleaning-tab-content .bslib-sidebar-layout,
+#cleaning-tab-content .bslib-sidebar-layout > * {
+  background: transparent !important;
+}
+#cleaning-tab-content aside,
+#cleaning-tab-content .sidebar,
+#cleaning-tab-content [class*="sidebar"] > div:first-child {
+  background: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(168, 85, 247, 0.2) !important;
+  border-radius: 16px !important;
+  padding: 18px !important;
+}
+#cleaning-tab-content .card {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(168, 85, 247, 0.22) !important;
+  color: #f5f3ff !important;
+  border-radius: 14px !important;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
+  overflow: hidden;
+}
+#cleaning-tab-content .card-header {
+  background: linear-gradient(90deg, #7c3aed 0%, #ec4899 100%) !important;
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  font-size: 1.02rem !important;
+  letter-spacing: 0.04em !important;
+  padding: 14px 20px !important;
+  border-bottom: none !important;
+  text-transform: uppercase;
+}
+#cleaning-tab-content h6 {
+  color: #fbbf24 !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.1em !important;
+  font-size: 0.88rem !important;
+  text-shadow: 0 0 12px rgba(251, 191, 36, 0.25);
+}
+#cleaning-tab-content label,
+#cleaning-tab-content .form-label,
+#cleaning-tab-content .control-label {
+  color: #e0e7ff !important;
+  font-weight: 600 !important;
+  font-size: 0.88rem !important;
+  letter-spacing: 0.03em !important;
+  margin-bottom: 6px !important;
+}
+#cleaning-tab-content select,
+#cleaning-tab-content .form-select,
+#cleaning-tab-content .form-control,
+#cleaning-tab-content input[type="text"],
+#cleaning-tab-content input[type="number"],
+#cleaning-tab-content input[type="password"],
+#cleaning-tab-content textarea,
+#cleaning-tab-content .selectize-input {
+  background: rgba(15, 23, 42, 0.6) !important;
+  color: #f5f3ff !important;
+  border: 1.5px solid rgba(168, 85, 247, 0.4) !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+}
+#cleaning-tab-content select:focus,
+#cleaning-tab-content .form-select:focus,
+#cleaning-tab-content .form-control:focus,
+#cleaning-tab-content input:focus,
+#cleaning-tab-content textarea:focus,
+#cleaning-tab-content .selectize-input.focus {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border-color: #f97316 !important;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.25) !important;
+  outline: none !important;
+}
+#cleaning-tab-content .selectize-dropdown,
+#cleaning-tab-content .selectize-dropdown-content {
+  background: #1e1b4b !important;
+  color: #f5f3ff !important;
+  border: 1px solid rgba(168, 85, 247, 0.4) !important;
+}
+#cleaning-tab-content .selectize-dropdown .option:hover,
+#cleaning-tab-content .selectize-dropdown .active {
+  background: linear-gradient(90deg, #7c3aed, #ec4899) !important;
+  color: #ffffff !important;
+}
+#cleaning-tab-content .selectize-input > .item,
+#cleaning-tab-content .selectize-input > div[data-value] {
+  background: linear-gradient(135deg, #f97316, #ec4899) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  border-radius: 999px !important;
+  padding: 2px 10px !important;
+}
+#cleaning-tab-content .radio label,
+#cleaning-tab-content .checkbox label,
+#cleaning-tab-content .form-check-label {
+  color: #e0e7ff !important;
+  font-weight: 500 !important;
+}
+#cleaning-tab-content .form-check-input {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+  border: 2px solid rgba(168, 85, 247, 0.6) !important;
+}
+#cleaning-tab-content .form-check-input:checked {
+  background-color: #f97316 !important;
+  border-color: #f97316 !important;
+}
+#cleaning-tab-content .btn {
+  border-radius: 999px !important;
+  font-weight: 700 !important;
+  padding: 11px 26px !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  font-size: 0.82rem !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border: none !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3) !important;
+}
+#cleaning-tab-content .btn:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4) !important;
+}
+#cleaning-tab-content .btn-primary,
+#cleaning-tab-content .btn-dark {
+  background: linear-gradient(135deg, #f97316 0%, #ec4899 100%) !important;
+  color: #ffffff !important;
+}
+#cleaning-tab-content .btn-primary:hover,
+#cleaning-tab-content .btn-dark:hover {
+  background: linear-gradient(135deg, #fb923c 0%, #f472b6 100%) !important;
+  box-shadow: 0 10px 28px rgba(236, 72, 153, 0.5) !important;
+}
+#cleaning-tab-content .btn-success {
+  background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%) !important;
+  color: #ffffff !important;
+}
+#cleaning-tab-content .btn-success:hover {
+  background: linear-gradient(135deg, #14b8a6 0%, #0ea5e9 100%) !important;
+  box-shadow: 0 10px 28px rgba(6, 182, 212, 0.55) !important;
+}
+#cleaning-tab-content .btn-outline-dark {
+  background: transparent !important;
+  color: #fbbf24 !important;
+  border: 2px solid #fbbf24 !important;
+  box-shadow: 0 0 0 transparent !important;
+}
+#cleaning-tab-content .btn-outline-dark:hover {
+  background: rgba(251, 191, 36, 0.12) !important;
+  color: #fef3c7 !important;
+  box-shadow: 0 0 22px rgba(251, 191, 36, 0.45) !important;
+}
+#cleaning-tab-content hr {
+  border-color: rgba(168, 85, 247, 0.3) !important;
+  margin: 16px 0 !important;
+}
+#cleaning-tab-content .clean-step-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important;
+  gap: 16px !important;
+}
+#cleaning-tab-content .clean-step-card {
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.18), rgba(236, 72, 153, 0.18)) !important;
+  border: 1px solid rgba(251, 191, 36, 0.35) !important;
+  color: #fef3c7 !important;
+  padding: 18px !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.3) !important;
+  min-height: 140px !important;
+  transition: transform 0.2s ease !important;
+}
+#cleaning-tab-content .clean-step-card:hover {
+  transform: translateY(-3px);
+}
+#cleaning-tab-content .clean-step-card .step-label {
+  color: #fb923c !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.12em !important;
+  text-shadow: 0 0 14px rgba(251, 146, 60, 0.55);
+}
+#cleaning-tab-content .clean-step-card .step-title {
+  color: #fef3c7 !important;
+  font-weight: 800 !important;
+  font-size: 1.1rem !important;
+}
+#cleaning-tab-content .clean-cta-box {
+  background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%) !important;
+  border: none !important;
+  padding: 22px !important;
+  border-radius: 16px !important;
+  box-shadow: 0 14px 44px rgba(124, 58, 237, 0.55) !important;
+  margin-top: 14px !important;
+}
+#cleaning-tab-content .clean-cta-title {
+  color: #ffffff !important;
+  font-size: 1.28rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.02em !important;
+  margin-bottom: 6px !important;
+}
+#cleaning-tab-content .clean-cta-note {
+  color: rgba(255, 255, 255, 0.92) !important;
+  font-size: 0.94rem !important;
+  margin-bottom: 16px !important;
+}
+#cleaning-tab-content .clean-version-panel {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(6, 182, 212, 0.18)) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  color: #d1fae5 !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#cleaning-tab-content .instr-box,
+#cleaning-tab-content .tip-box {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.15), rgba(251, 191, 36, 0.1)) !important;
+  border-left: 4px solid #fb923c !important;
+  color: #fef3c7 !important;
+  border-radius: 10px !important;
+  padding: 14px 18px !important;
+  font-size: 0.95rem !important;
+}
+#cleaning-tab-content .small-note {
+  color: #e0e7ff !important;
+  font-size: 0.9rem !important;
+}
+#cleaning-tab-content table {
+  color: #f5f3ff !important;
+  background: transparent !important;
+}
+#cleaning-tab-content thead th,
+#cleaning-tab-content table thead tr th {
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.4), rgba(236, 72, 153, 0.4)) !important;
+  color: #fbbf24 !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  font-size: 0.75rem !important;
+  padding: 12px !important;
+  border: none !important;
+}
+#cleaning-tab-content tbody td,
+#cleaning-tab-content table tbody tr td {
+  border-top: 1px solid rgba(168, 85, 247, 0.18) !important;
+  padding: 10px 12px !important;
+  color: #e0e7ff !important;
+  background: transparent !important;
+}
+#cleaning-tab-content tbody tr:hover,
+#cleaning-tab-content table tbody tr:hover {
+  background: rgba(124, 58, 237, 0.2) !important;
+}
+#cleaning-tab-content .datatable,
+#cleaning-tab-content .shiny-output-frame {
+  background: rgba(15, 23, 42, 0.3) !important;
+  border-radius: 10px !important;
+  color: #f5f3ff !important;
+}
+#cleaning-tab-content p,
+#cleaning-tab-content div,
+#cleaning-tab-content span {
+  color: inherit;
+}
+#cleaning-tab-content .card-body p,
+#cleaning-tab-content .card-body span,
+#cleaning-tab-content .card-body div {
+  color: #f5f3ff;
+}
+
+/* Dramatic top banner (rendered only for Group B, above the tab body) */
+.cleaning-b-banner {
+  background: linear-gradient(135deg, #1e1b4b 0%, #7c3aed 45%, #f97316 100%);
+  color: #ffffff;
+  padding: 30px 36px;
+  border-radius: 20px;
+  margin: 12px 0 18px 0;
+  box-shadow: 0 20px 60px rgba(124, 58, 237, 0.32);
+  position: relative;
+  overflow: hidden;
+  font-family: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+}
+.cleaning-b-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.12), transparent 60%),
+              radial-gradient(circle at 80% 70%, rgba(251, 191, 36, 0.18), transparent 55%);
+  pointer-events: none;
+}
+.cleaning-b-banner-inner { position: relative; z-index: 1; }
+.cleaning-b-banner-title {
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.3);
+}
+.cleaning-b-banner-subtitle {
+  font-size: 1rem;
+  opacity: 0.92;
+  margin-bottom: 22px;
+  font-weight: 500;
+}
+.cleaning-b-banner-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cb-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  padding: 7px 16px 7px 8px;
+  font-weight: 700;
+}
+.cb-step-num {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+.cb-step-label { font-size: 0.9rem; letter-spacing: 0.02em; }
+.cb-step-arrow { color: rgba(255, 255, 255, 0.6); font-weight: 700; font-size: 1.1rem; }
+"""
+
 
 # ---------------------------------------------------------------------------
 # Pure helper functions
@@ -875,7 +1228,15 @@ app_ui = ui.page_navbar(
     # ── Cleaning Tab ───────────────────────────────────────────────────────
     ui.nav_panel(
         "Cleaning",
-        ui.layout_sidebar(
+        # Group-B-only <style> injection (empty div for Group A). Kept inside
+        # the Cleaning tab so CSS only loads when users are on this tab.
+        ui.output_ui("cleaning_b_theme_style"),
+        # Group-B-only top banner. Empty div for Group A.
+        ui.output_ui("cleaning_b_top_banner"),
+        # Themeable wrapper — Group B's CSS targets this id for descendants.
+        ui.div(
+            {"id": "cleaning-tab-content"},
+            ui.layout_sidebar(
             ui.sidebar(
                 ui.h6("Cleaning / Preprocessing", class_="text-uppercase fw-bold"),
                 ui.output_ui("cleaning_sidebar_intro"),
@@ -1020,6 +1381,7 @@ app_ui = ui.page_navbar(
             ui.card(
                 ui.card_header(ui.strong("Before / After Comparison")),
                 output_widget("plot_clean_comparison", height="300px"),
+            ),
             ),
         ),
     ),
@@ -1481,10 +1843,55 @@ def server(input, output, session):
 
     @output
     @render.ui
+    def cleaning_b_theme_style():
+        # Group B only: inject a <style> block that applies the dramatic
+        # dark-gradient theme to #cleaning-tab-content. Group A gets nothing.
+        if ab_group_state.get() != "B":
+            return ui.div()
+        return ui.tags.style(GROUP_B_DRAMATIC_CSS)
+
+    @output
+    @render.ui
+    def cleaning_b_top_banner():
+        # Group B only: prominent gradient banner + 4-step progress indicator
+        # above the tab body. Group A gets nothing (keeps the familiar layout).
+        if ab_group_state.get() != "B":
+            return ui.div()
+        return ui.div(
+            {"class": "cleaning-b-banner"},
+            ui.div(
+                {"class": "cleaning-b-banner-inner"},
+                ui.div({"class": "cleaning-b-banner-title"},
+                       "Data Cleaning Studio"),
+                ui.div({"class": "cleaning-b-banner-subtitle"},
+                       "Guided pipeline — choose a dataset, pick an action, preview the impact, then save."),
+                ui.div(
+                    {"class": "cleaning-b-banner-steps"},
+                    ui.div({"class": "cb-step"},
+                           ui.div({"class": "cb-step-num"}, "1"),
+                           ui.div({"class": "cb-step-label"}, "Dataset")),
+                    ui.div({"class": "cb-step-arrow"}, "→"),
+                    ui.div({"class": "cb-step"},
+                           ui.div({"class": "cb-step-num"}, "2"),
+                           ui.div({"class": "cb-step-label"}, "Action")),
+                    ui.div({"class": "cb-step-arrow"}, "→"),
+                    ui.div({"class": "cb-step"},
+                           ui.div({"class": "cb-step-num"}, "3"),
+                           ui.div({"class": "cb-step-label"}, "Parameters")),
+                    ui.div({"class": "cb-step-arrow"}, "→"),
+                    ui.div({"class": "cb-step"},
+                           ui.div({"class": "cb-step-num"}, "4"),
+                           ui.div({"class": "cb-step-label"}, "Preview & Save")),
+                ),
+            ),
+        )
+
+    @output
+    @render.ui
     def cleaning_sidebar_intro():
         # Blinded: do not label the user's arm. The treatment effect in B comes
-        # from the layout + CTA box below, not from telling the user they are
-        # in a "Version B / Guided" condition.
+        # from the layout + CTA box below (plus the dramatic theme), not from
+        # telling the user they are in a "Version B / Guided" condition.
         group = ab_group_state.get()
         tip_text = "Tip: use the Preview button to see the before/after impact before applying changes."
         if group == "A":
