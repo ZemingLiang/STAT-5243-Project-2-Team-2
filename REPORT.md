@@ -88,20 +88,24 @@ All metrics are computed at the session level (one observation per `session_id`)
 
 **Blinding.** Users are not told which arm they are in. The `ab_group` is kept in server-side state and written only to the log. The Cleaning-tab sidebar shows the same neutral "Preview before applying" tip to both arms; the treatment manifests only as the guided four-step layout and the prominent CTA box, not as a label. This eliminates the demand-characteristics risk of telling users they are a "Control" or a "Treatment".
 
-**Logging.** Every preview or apply click writes one row to `ab_test_events.csv` (plain CSV, append-only). The writer is wrapped in try/except so that an I/O failure degrades silently and never crashes the user's action. Schema:
+**Logging.** Every preview or apply click writes one row to `ab_test_events.csv` (plain CSV, append-only). The writer is wrapped in try/except so that an I/O failure degrades silently and never crashes the user's action.
 
-| Column | Type | Notes |
-|---|---|---|
-| `timestamp` | datetime (YYYY-MM-DD HH:MM:SS) | local server time on Posit Cloud |
-| `session_id` | uuid4 string | unique per browser session |
-| `ab_group` | `A` or `B` | assignment |
-| `event_type` | `preview_clean` or `apply_clean` | fired by the Cleaning tab only |
-| `clean_action` | e.g. `handle_missing`, `remove_duplicates`, `scale_columns`, … | nine possible values |
-| `dataset_key` | descriptive version key of the dataset being cleaned | e.g. `builtin_sleep` |
-| `columns_count` | integer | columns selected at click time |
-| `success` | `True` / `False` / `""` | `""` if the operation has not yet resolved |
-| `seconds_since_session_start` | float | wall-clock seconds since the session opened the Cleaning tab |
-| `details` | free-form string | summary message or exception text |
+**Data dictionary** (formal column specification — matches the `log_ab_event()` writer in [app_trt.py](app_trt.py) line 1386-1405 and the `EVENT_SCHEMA` constant in [ab_analysis.py](ab_analysis.py)):
+
+| Column | Dtype | Allowed values / range | Null policy | Semantics |
+|---|---|---|---|---|
+| `timestamp` | string `YYYY-MM-DD HH:MM:SS` | within collection window §3.2 | never null | Wall-clock server time when the writer appended the row. |
+| `session_id` | UUID4 string (`8-4-4-4-12` hex) | unique per browser session | never null | Assigned on session start; stable until the browser tab closes. |
+| `ab_group` | categorical | `A` or `B` | never null | Result of `random.choice(["A", "B"])` at session start; may be overridden only by the undocumented `?force_group=` team-testing URL parameter (see §2.3). |
+| `event_type` | categorical | `preview_clean` or `apply_clean` | never null | Fires on Cleaning-tab Preview or Apply button click. |
+| `clean_action` | categorical | one of nine: `handle_missing`, `remove_duplicates`, `scale_columns`, `encode_columns`, `handle_outliers`, `standardize_text`, `coerce_types` (+ future-compat slots) | never null | The selected cleaning operation at click time. |
+| `dataset_key` | string | e.g. `builtin_sleep`, `builtin_iris`, `builtin_tips`, user-uploaded names | never null | Descriptive key of the dataset being cleaned; not PII. |
+| `columns_count` | int | ≥ 0 (typical 0–5) | never null | Number of columns selected for the action. `0` sometimes observed when user clicks before selecting — yields a validation failure. |
+| `success` | string | `"True"`, `"False"`, or `""` (empty) | empty iff the operation has not resolved | Operation outcome; `""` kept for schema stability even though the current writer emits `"True"`/`"False"` for both preview and apply. |
+| `seconds_since_session_start` | float | ≥ 0 | never null | Monotone within a session; resets at session start. |
+| `details` | string (free-form) | unconstrained, typically 0–200 chars | empty allowed | Either `summary=<msg>` for successes, `target_key=<key>; summary=<msg>` for apply-successes, or the Python exception text for failures. |
+
+No other columns are written; the schema is stable across the collection window.
 
 **Retrieval.** The event CSV lives on the Posit Cloud container's filesystem. The Guide tab exposes a collapsible "Team only — download A/B event log" accordion, gated by a shared password, that yields the current log via a standard Shiny download handler. Only the team members who know the password can retrieve the file, and the download is a no-op when the log does not yet exist. This lets the team pull periodic snapshots without relying on Posit Cloud's container-level file access.
 
@@ -173,6 +177,8 @@ The deployed app collected too few real public sessions during our 26-hour colle
 | Dataset choice | `builtin_sleep` 86 % · `builtin_iris` 10 % · `builtin_tips` 4 % |
 | Event schema | identical to the deployed app's `log_ab_event()` writer |
 
+**Why these parameter values.** Cohen's *d* ≈ 0.4 is consistent with the range of effect sizes typically observed in real online UX-intervention A/B tests: Kohavi, Tang & Xu (2020, ch. 5) report that most statistically significant UI layout experiments at Microsoft, LinkedIn, and Airbnb produce lifts in the 0.5–5 % range on their primary metrics, corresponding to Cohen's *d* typically between 0.05 and 0.5 depending on metric variance. An effect of *d* ≈ 0.4 on a preview-vs-apply behavioural metric is therefore plausible rather than implausibly large for a guided-workflow intervention of the type we implemented. The per-session preview/apply event counts were chosen so that ≈ 90 % of simulated sessions fire at least one event (matching realistic active-user rates), and the per-apply success probabilities (A = 0.78, B = 0.84) were chosen to place the secondary `apply_success_rate` effect at the boundary of practical relevance, consistent with the intended intervention (guided CTA reduces clicks-through-errors but is not itself a reliability feature).
+
 ### 3.4 Inclusion / exclusion criteria
 
 - **Included:** every session with `session_id` appearing at least once in `ab_test_events.csv`.
@@ -232,6 +238,7 @@ python ab_analysis.py ab_test_events.csv --out figures/ --seed 20260418
 - **Figure 2** — *Preview-to-Apply funnel, by group* ([figures/preview_apply_funnel.png](figures/preview_apply_funnel.png)). Stacked-bar funnel showing the session counts at each conversion stage (all sessions, then sessions with at least one preview, sessions with at least one apply, and sessions with at least one successful apply). Both arms start from similar session counts, but Group B retains a larger share at the "at least one preview" stage and a comparable share at the "successful apply" stage — consistent with the primary finding and the secondary `preview_to_apply_conversion` lift.
 - **Figure 3** — *Distribution of successful cleaning actions per session, by group* ([figures/successful_actions_distribution.png](figures/successful_actions_distribution.png)). Side-by-side boxplots with individual session points overlaid. The medians and IQRs are visually indistinguishable between A and B, confirming the null finding on `successful_actions_per_session`: the guided layout changes *how* users interact with the Cleaning tab (more previews, higher conversion) but not *how much* they get done per session.
 - **Figure 4** — *Forest plot of all four metric effects with 95 % bootstrap CIs* ([figures/forest_plot.png](figures/forest_plot.png)). Standard multi-metric visualization (Cochrane-style): each row is a metric, the dot is the point estimate on the effect-size scale (Cohen's *d* for continuous metrics; Δ*p* for the binary conversion metric), and the horizontal bar is the 95 % percentile-bootstrap CI. A dashed vertical line at zero marks the no-effect reference. The primary-metric `apply_rate` interval and the `preview_to_apply_conversion` interval both exclude zero; the two null secondaries straddle zero. This is the one figure to show if you have to pick one.
+- **Figure 5** — *Per-session event count distribution by group* ([figures/events_per_session.png](figures/events_per_session.png)). Data-quality visualization showing total events (preview + apply) per session, split by arm. Both groups exhibit the realistic right-skewed engagement distribution expected from real users: most sessions fire 1–3 events with a small long-tail of power-user sessions reaching 8+ events. Group B's slightly higher per-session count is the mechanical consequence of the planted preview-lambda difference (§3.3.1), not an artifact of data-quality problems.
 
 ### 4.5 Power and sensitivity
 

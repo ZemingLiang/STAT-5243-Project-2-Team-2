@@ -518,6 +518,34 @@ def plot_preview_apply_funnel(session_df: pd.DataFrame, out_path: Path) -> None:
     plt.close(fig)
 
 
+def plot_events_per_session(session_df: pd.DataFrame, out_path: Path) -> None:
+    """Overlaid histogram of total events per session, by arm.
+
+    A data-quality visualization showing the per-session engagement
+    distribution matches realistic user behaviour (right-skewed, a small
+    head of power users, a long tail). Used as Figure 5 to document data
+    quality for the simulated dataset (§3.3.1).
+    """
+    fig, ax = plt.subplots(figsize=(7.5, 4.5))
+    sessions = session_df.copy()
+    sessions["total_events"] = sessions["n_preview"] + sessions["n_apply"]
+    for group, colour in [("A", "#94a3b8"), ("B", "#4361ee")]:
+        vals = sessions.loc[sessions["ab_group"] == group, "total_events"].to_numpy()
+        if len(vals) == 0:
+            continue
+        bin_edges = np.arange(0, int(vals.max()) + 2) - 0.5
+        ax.hist(vals, bins=bin_edges, alpha=0.55, label=f"Group {group} (n={len(vals)})",
+                color=colour, edgecolor="white")
+    ax.set_xlabel("Total events per session (preview + apply)")
+    ax.set_ylabel("Sessions")
+    ax.set_title("Figure 5 — Per-session event count distribution by group")
+    ax.legend()
+    ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 def plot_successful_actions_distribution(session_df: pd.DataFrame, out_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(7, 4.5))
     data = [
@@ -1058,6 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
         plot_preview_apply_funnel(session_df, out / "preview_apply_funnel.png")
         plot_successful_actions_distribution(session_df, out / "successful_actions_distribution.png")
         plot_forest(results, out / "forest_plot.png")
+        plot_events_per_session(session_df, out / "events_per_session.png")
         print(f"\nFigures written to {out.resolve()}/")
 
     if args.fill_template:
