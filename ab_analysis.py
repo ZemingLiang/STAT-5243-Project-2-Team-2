@@ -477,6 +477,12 @@ def balance_check(events: pd.DataFrame) -> dict:
 
 
 def plot_apply_rate_by_group(session_df: pd.DataFrame, out_path: Path) -> None:
+    """Figure 1 — overlaid histogram of per-session apply_rate by arm.
+
+    Grey bars for Group A, blue for Group B, 20 bins on [0, 1]. The
+    visual separation between the two distributions is the single
+    strongest summary of the primary-metric effect.
+    """
     fig, ax = plt.subplots(figsize=(7, 4.5))
     for group, color in [("A", "#94a3b8"), ("B", "#4361ee")]:
         vals = session_df.loc[session_df["ab_group"] == group, "apply_rate"].to_numpy()
@@ -493,6 +499,13 @@ def plot_apply_rate_by_group(session_df: pd.DataFrame, out_path: Path) -> None:
 
 
 def plot_preview_apply_funnel(session_df: pd.DataFrame, out_path: Path) -> None:
+    """Figure 2 — grouped-bar funnel: sessions, ≥1 preview, ≥1 apply, ≥1 successful apply.
+
+    Shows how each arm's sessions progress through the preview → apply
+    → success funnel. Group B retains a larger share at the "≥ 1
+    preview" stage, which is the mechanical consequence of the planted
+    preview-lambda difference.
+    """
     stages = ["Sessions", "≥1 preview", "≥1 apply", "≥1 successful apply"]
     data = {}
     for group in ["A", "B"]:
@@ -547,6 +560,12 @@ def plot_events_per_session(session_df: pd.DataFrame, out_path: Path) -> None:
 
 
 def plot_successful_actions_distribution(session_df: pd.DataFrame, out_path: Path) -> None:
+    """Figure 3 — boxplot of successful cleaning actions per session, by arm.
+
+    The distribution shapes and medians are near-identical in A and B,
+    consistent with the null finding on the `successful_actions_per_session`
+    secondary metric.
+    """
     fig, ax = plt.subplots(figsize=(7, 4.5))
     data = [
         session_df.loc[session_df["ab_group"] == "A", "successful_actions_per_session"].to_numpy(),
@@ -1026,6 +1045,13 @@ def format_report(
     results: pd.DataFrame,
     balance: dict,
 ) -> str:
+    """Produce the Markdown analysis summary printed to stdout by main().
+
+    Small, self-contained formatter: one line for total events and per-arm
+    session counts, one line for the randomisation balance p-value, and a
+    single Markdown table of the four metric comparisons. Distinct from
+    ``fill_report``, which substitutes placeholders in REPORT.md.
+    """
     lines = []
     lines.append("# A/B Analysis — STAT 5243 Project 3")
     lines.append("")
@@ -1054,6 +1080,13 @@ def format_report(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for the analysis pipeline.
+
+    Orchestrates: load → per-session aggregation → comparison → plots →
+    optional REPORT.md fill. Called from both the command line
+    (``python ab_analysis.py …``) and the CI workflow. Returns 0 on
+    success; any analysis failure raises rather than returning non-zero.
+    """
     parser = argparse.ArgumentParser(description="A/B analysis for STAT 5243 Project 3")
     parser.add_argument("log_path", help="Path to ab_test_events.csv")
     parser.add_argument("--out", default="figures", help="Directory for output figures")

@@ -1,0 +1,58 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - Main-Final-Deliverables
+      - main
+  pull_request:
+
+jobs:
+  test:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pypdf
+
+      - name: Run unit tests
+        run: python -m unittest tests -v
+
+      - name: Exercise the analysis pipeline on the committed dataset
+        run: |
+          python ab_analysis.py ab_test_events_final.csv \
+              --out figures \
+              --seed 20260418 \
+              --no-figures \
+              --fill-template REPORT.md \
+              --fill-out /tmp/REPORT.filled.md
+          # Sanity check: no leftover {placeholder} tokens
+          if grep -E '\{[A-Za-z_][A-Za-z0-9_]*\}' /tmp/REPORT.filled.md; then
+            echo "ERROR: unsubstituted placeholders found in filled report"
+            exit 1
+          fi
+
+      - name: Regenerate synthetic dataset with the frozen seed
+        run: |
+          python ab_seed_generator.py \
+              --n 50 \
+              --seed 20260418 \
+              --out /tmp/smoke_synthetic.csv
+          test -s /tmp/smoke_synthetic.csv

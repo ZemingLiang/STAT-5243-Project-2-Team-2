@@ -48,6 +48,58 @@ Every Preview or Apply click writes one row to `ab_test_events.csv` (append-only
 
 ---
 
+## Architecture
+
+```
+  ┌──────────────────────┐
+  │   User's browser     │
+  │  (classmate, Reddit, │
+  │   LinkedIn, WeChat)  │
+  └──────────┬───────────┘
+             │  single URL, no credentials
+             ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │  Posit Connect Cloud — app_trt.py                        │
+  │  ────────────────────────────────                        │
+  │  • ab_group = random.choice(["A", "B"])   per session    │
+  │  • Conditional Cleaning-tab UI rendering                 │
+  │  • log_ab_event() writes one row per click               │
+  └──────────┬───────────────────────────────────────────────┘
+             │  append-only
+             ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │  ab_test_events.csv    (server-side, admin-downloadable) │
+  │  schema: timestamp | session_id | ab_group | event_type  │
+  │          | clean_action | dataset_key | columns_count    │
+  │          | success | seconds_since_session_start | details│
+  └──────────┬───────────────────────────────────────────────┘
+             │  `python ab_analysis.py <csv> --fill-template REPORT.md`
+             ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │  ab_analysis.py                                          │
+  │  ─────────────                                           │
+  │  load_events → session_metrics → compare_groups          │
+  │     → Welch t / Mann-Whitney U / 2-prop z                │
+  │     → Cohen's d + bootstrap CI                           │
+  │     → Bonferroni + FDR correction                        │
+  │     → TOST equivalence + SRM χ² + assumption checks      │
+  │     → subgroup_analysis by clean_action                  │
+  │     → 5 figures (PNG) + REPORT.filled.md                 │
+  └──────────┬───────────────────────────────────────────────┘
+             │  `pandoc REPORT.filled.md -o report.pdf …`
+             ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │  report.pdf — 18-page final submission deliverable       │
+  └──────────────────────────────────────────────────────────┘
+
+  ab_seed_generator.py runs independently of the deployed app:
+  it produces a realistic synthetic ab_test_events_final.csv
+  (1 000 sessions, 4 time waves, realistic action mix) that
+  ab_analysis.py consumes with exactly the same entry point.
+```
+
+---
+
 ## Repository structure
 
 | File | Purpose |
@@ -131,6 +183,45 @@ python tests.py
 ```
 
 Includes the original Project-2 integration smoke tests plus a new `TestABLogging` / `TestABAnalysis` suite covering log-writer schema, randomisation balance over 1 000 draws, session-metrics aggregation, and a detection test on planted-effect synthetic data.
+
+---
+
+## Sample analysis output
+
+What a fresh run of `ab_analysis.py` prints to stdout on the committed dataset:
+
+<details>
+<summary>Click to expand — <code>python ab_analysis.py ab_test_events_final.csv --out figures</code></summary>
+
+```
+# A/B Analysis — STAT 5243 Project 3
+
+## Sample
+
+- Total events: 3,271
+- Sessions: Group A = 453, Group B = 489
+- Randomisation balance (two-sided binomial p vs 0.5): 0.2541
+
+## Metric comparisons (Bonferroni-corrected over the 4-metric family)
+
+| Metric | Test | Mean A | Mean B | Statistic | p (raw) | p (Bonferroni) | Effect | 95 % CI |
+|---|---|---|---|---|---|---|---|---|
+| `apply_rate` | Welch's t-test | 0.5642 | 0.4049 | 8.3977 | 0.0000 | 0.0000 | -0.5510 (Cohen's d) | [-0.1957, -0.1224] |
+| `preview_to_apply_conversion` | two-proportion z-test | 0.6424 | 0.7403 | 3.2555 | 0.0011 | 0.0045 | 0.0979 (proportion diff (B − A)) | [0.0401, 0.1573] |
+| `apply_success_rate` | Welch's t-test | 0.6090 | 0.6667 | -2.1000 | 0.0360 | 0.1440 | 0.1369 (Cohen's d) | [0.0042, 0.1119] |
+| `successful_actions_per_session` | Mann-Whitney U | 1.2208 | 1.2720 | 107973.0000 | 0.4850 | 1.0000 | 0.0500 (Cohen's d) | [-0.0788, 0.1828] |
+
+Family-wise α = 0.05 (per-test threshold 0.0125 after Bonferroni).
+
+Figures written to figures/
+
+Filled template written to REPORT.filled.md
+All placeholders substituted.
+```
+
+Interpretation: primary metric (`apply_rate`) and one secondary (`preview_to_apply_conversion`) both reject H₀ after Bonferroni correction; the remaining two secondaries are null. See [REPORT.md §5](REPORT.md) for the full narrative.
+
+</details>
 
 ---
 

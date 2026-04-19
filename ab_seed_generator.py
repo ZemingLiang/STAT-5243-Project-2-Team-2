@@ -177,6 +177,16 @@ def _details_apply_success(rng, action: str, columns_count: int, summary: str) -
 
 
 def generate(n_sessions: int, seed: int = 20260418):
+    """Produce a list of simulated event-log rows with realistic structure.
+
+    For each of ``n_sessions`` synthetic sessions, picks an arm uniformly
+    at random, chooses a temporal wave from TIME_WAVES, determines
+    power-user status, draws preview / apply event counts from group-
+    specific Gaussians (GROUP_PARAMS), and emits one dict row per event
+    with realistic timing gaps and a ``details`` string that mirrors the
+    format the real ``log_ab_event()`` writes. Returns a timestamp-sorted
+    list of dicts; the caller passes them to ``write_csv``.
+    """
     rng = random.Random(seed)
     base_start = datetime(2026, 4, 18, 9, 30, 0)
 
@@ -275,6 +285,12 @@ def _row(session_start, seconds, sid, group, event_type, *,
 
 
 def write_csv(rows, out_path) -> None:
+    """Write row dicts to a CSV using the EVENT_SCHEMA column order.
+
+    Matches the format the deployed app's ``log_ab_event()`` writer
+    produces so the two files are interchangeable inputs to
+    ``ab_analysis.py``.
+    """
     out_path = Path(out_path)
     with out_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=EVENT_SCHEMA)
@@ -284,6 +300,13 @@ def write_csv(rows, out_path) -> None:
 
 
 def main(argv=None) -> int:
+    """CLI entry point: ``python ab_seed_generator.py --n N --out PATH --seed S``.
+
+    Generates ``N`` sessions (some will have 0 events and be absent from
+    the output, which is realistic), writes the resulting CSV, and
+    returns 0. Uses seed 20260418 by default so the committed
+    ``ab_test_events_final.csv`` is byte-reproducible.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=1000, help="Number of sessions to simulate")
     parser.add_argument("--out", default="ab_test_events_final.csv", help="Output CSV path")
