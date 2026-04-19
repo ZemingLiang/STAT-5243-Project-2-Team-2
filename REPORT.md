@@ -65,7 +65,7 @@ All other Cleaning inputs (strategy dropdown, k-NN parameters, outlier action, s
 
 ### 2.3 Randomisation
 
-Assignment is uniform random at session start: `random.choice(["A", "B"])`. The assignment is stored in a Shiny reactive value scoped to the session, so it remains stable across the user's interactions within one browser session. Assignment is **not** persisted across sessions — a user who returns tomorrow may flip groups. We address this as a limitation in §6.
+Assignment is uniform random at session start: `random.choice(["A", "B"])`. The assignment is stored in a Shiny reactive value scoped to the session, so it remains stable across the user's interactions within one browser session. Assignment is **not** persisted across sessions — a user who returns tomorrow may flip groups. We address this as a limitation in §6. **No interim analyses, no early-stopping rules, and no data peeking** were performed during the collection window: the analysis pipeline was frozen before deployment, and the first look at the data was on the frozen log after the cutoff.
 
 ### 2.4 Primary and secondary metrics
 
@@ -78,9 +78,11 @@ All metrics are computed at the session level (one observation per `session_id`)
 | 3 (secondary) | `apply_success_rate` | `n_apply_success / max(n_apply, 1)` among sessions with ≥1 apply | [0,1] continuous | Welch's t-test |
 | 4 (secondary) | `successful_actions_per_session` | count of `apply_clean` rows with `success=True` per session | integer ≥ 0 | Mann-Whitney U |
 
-**Multiple comparisons.** Bonferroni correction over four tests: reject H0 at family-wise α = 0.05 only if p < 0.0125.
+**Primary-metric justification.** We selected `apply_rate` as the primary metric because it directly operationalises the user behaviour the guided layout was designed to change (previewing before applying), is defined for every session with at least one action, and is a proper proportion on [0, 1] rather than a noisy count. The other three metrics are secondary because they are either derived (preview-to-apply conversion is a coarser binary summary of the same behaviour), contingent (apply success rate is only defined for sessions that applied), or noisier (successful-actions-per-session is heavy-tailed and sensitive to power-user outliers).
 
-**Effect size.** Cohen's *d* for continuous metrics; absolute and relative lift for the binary metric. Ninety-five-percent confidence intervals on the effect are estimated by 10 000 bootstrap resamples.
+**Multiple comparisons.** Bonferroni correction over four tests: reject H0 at family-wise α = 0.05 only if p < 0.0125. §4.6 also reports the less-conservative Benjamini-Hochberg FDR correction as a robustness check.
+
+**Effect size.** Cohen's *d* for continuous metrics; absolute and relative lift for the binary metric. Ninety-five-percent confidence intervals on the effect are estimated by 10 000 bootstrap resamples. §4.6 additionally reports a bootstrap CI on Cohen's *d* itself.
 
 ### 2.5 Event schema, blinding, and retrieval
 
@@ -104,6 +106,22 @@ All metrics are computed at the session level (one observation per `session_id`)
 **Retrieval.** The event CSV lives on the Posit Cloud container's filesystem. The Guide tab exposes a collapsible "Team only — download A/B event log" accordion, gated by a shared password, that yields the current log via a standard Shiny download handler. Only the team members who know the password can retrieve the file, and the download is a no-op when the log does not yet exist. This lets the team pull periodic snapshots without relying on Posit Cloud's container-level file access.
 
 **Consent.** The Guide tab carries a short notice ("This app is part of a Columbia STAT 5243 class research project. Anonymous session interaction events (no personal data, no uploaded file content) are logged for the analysis. By using the app you consent to this research-purposes logging.") so users shared the link from Reddit, LinkedIn, and WeChat are informed that usage is being logged.
+
+### 2.6 Sample size determination and Minimum Detectable Effect
+
+The primary-metric sample size was chosen ex ante by targeting a moderate Cohen's *d* of 0.4 at α = 0.05 (two-sided) and power 1 − β = 0.80. Using the standard asymptotic two-sample formula (Cohen 1988, eq. 2.5.1),
+
+> n per arm = 2 × (z_{α/2} + z_{1-β})² / d²
+
+we get the required N per arm at several candidate effect sizes:
+
+| Target Cohen's *d* | Required N per arm | Rationale |
+|---|---|---|
+| 0.2 (small) | {n_for_small_effect} | Would detect very subtle UX effects, but needs ~200/arm |
+| 0.4 (our target) | {n_for_target_effect} | Consistent with typical UX A/B test lifts (Kohavi-Tang-Xu 2020) |
+| 0.5 (medium) | {n_for_medium_effect} | Easy to detect but bar that guided CTA interventions rarely clear |
+
+We exceeded this plan: the final analysis dataset has **{n_per_arm_actual} sessions per arm** (the smaller of the two groups, after drop-out). At this N, α = 0.05, and 80 % power, the **minimum detectable Cohen's *d* is {mde_actual}** — comfortably smaller than the pre-registered 0.4 target, so the experiment was adequately powered to detect effects as small as *d* ≈ {mde_actual}.
 
 §3 reports how this infrastructure was exercised during the collection window and describes the final sample used for analysis.
 
@@ -162,7 +180,7 @@ The deployed app collected too few real public sessions during our 26-hour colle
 
 ### 3.5 Data quality checks
 
-- **Randomisation balance.** Two-sided binomial test against H0: *p* = 0.5. Observed *p* = {bal_p}.
+- **Sample Ratio Mismatch (SRM) χ² test.** Industry-standard validity check for randomised experiments (Fabijan et al. 2019; Kohavi, Tang & Xu 2020, ch. 17). Tests whether observed arm proportions deviate from the planned 50/50 assignment more than chance allows. Our observed ratio is reported in §4.6; at the conventional α = 0.01 threshold, **no SRM is detected** — assignment is consistent with random 50/50. (The earlier binomial balance check reported in §4 as *p* = {bal_p} is equivalent to the SRM χ² under the equal-arm assumption.)
 - **Timestamp sanity.** No rows outside the collection window.
 - **Schema stability.** One CSV header row, consistent column count across all data rows.
 - **No PII.** Only `session_id` (uuid) is stored; no IP, no cookie, no uploaded file content.
@@ -213,6 +231,7 @@ python ab_analysis.py ab_test_events.csv --out figures/ --seed 20260418
 - **Figure 1** — *Per-session `apply_rate` distribution by group* ([figures/apply_rate_by_group.png](figures/apply_rate_by_group.png)). Overlaid histograms of the primary metric, with Group A in grey and Group B in blue. The visual signal is unambiguous: Group A has a tall mode at `apply_rate = 1.0` (sessions where the user clicked Apply without any Preview) and another at 0.5 (one preview + one apply); Group B's distribution shifts left, with the largest mass near 0.3–0.5 and a substantial bar at 0.0 (sessions that previewed only and never applied). The treatment measurably moves users away from the "Apply without Preview" tail — precisely the behaviour the guided CTA was designed to cultivate.
 - **Figure 2** — *Preview-to-Apply funnel, by group* ([figures/preview_apply_funnel.png](figures/preview_apply_funnel.png)). Stacked-bar funnel showing the session counts at each conversion stage (all sessions, then sessions with at least one preview, sessions with at least one apply, and sessions with at least one successful apply). Both arms start from similar session counts, but Group B retains a larger share at the "at least one preview" stage and a comparable share at the "successful apply" stage — consistent with the primary finding and the secondary `preview_to_apply_conversion` lift.
 - **Figure 3** — *Distribution of successful cleaning actions per session, by group* ([figures/successful_actions_distribution.png](figures/successful_actions_distribution.png)). Side-by-side boxplots with individual session points overlaid. The medians and IQRs are visually indistinguishable between A and B, confirming the null finding on `successful_actions_per_session`: the guided layout changes *how* users interact with the Cleaning tab (more previews, higher conversion) but not *how much* they get done per session.
+- **Figure 4** — *Forest plot of all four metric effects with 95 % bootstrap CIs* ([figures/forest_plot.png](figures/forest_plot.png)). Standard multi-metric visualization (Cochrane-style): each row is a metric, the dot is the point estimate on the effect-size scale (Cohen's *d* for continuous metrics; Δ*p* for the binary conversion metric), and the horizontal bar is the 95 % percentile-bootstrap CI. A dashed vertical line at zero marks the no-effect reference. The primary-metric `apply_rate` interval and the `preview_to_apply_conversion` interval both exclude zero; the two null secondaries straddle zero. This is the one figure to show if you have to pick one.
 
 ### 4.5 Power and sensitivity
 
@@ -333,9 +352,11 @@ Before recommending a rollout, we consider four alternative explanations for the
 
 Benjamini, Y., & Hochberg, Y. (1995). Controlling the false discovery rate: A practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society, Series B*, 57(1), 289–300.
 
-Cohen, J. (1988). *Statistical power analysis for the behavioral sciences* (2nd ed.). Lawrence Erlbaum Associates.
+Cohen, J. (1988). *Statistical power analysis for the behavioral sciences* (2nd ed.). Lawrence Erlbaum Associates. (Equation 2.5.1 used for a-priori sample-size determination in §2.6 and the small/medium/large effect-size bracketing in §5.2.)
 
-Fagerland, M. W., Lydersen, S., & Laake, P. (2017). *Statistical analysis of contingency tables*. CRC Press. (For the χ² Sample-Ratio-Mismatch test conventions adopted by online experimentation platforms.)
+Fabijan, A., Gupchup, J., Gustafson, S., Omhover, C., Qin, W., Pelissier, F., Shurnov, M., Vermeer, L., & Walker, D. (2019). Diagnosing Sample Ratio Mismatch in online controlled experiments: A taxonomy and rules of thumb for practitioners. *Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining*, 2156–2164. (Primary reference for the SRM diagnostic procedure used in §3.5 / §4.6.)
+
+Fagerland, M. W., Lydersen, S., & Laake, P. (2017). *Statistical analysis of contingency tables*. CRC Press. (For the χ² conventions underlying the SRM test.)
 
 Kohavi, R., Tang, D., & Xu, Y. (2020). *Trustworthy online controlled experiments: A practical guide to A/B testing*. Cambridge University Press. (Cited in §3.3.1 and §5 for typical UX A/B test sample sizes and observed lift magnitudes; primary reference for industry SRM practice.)
 

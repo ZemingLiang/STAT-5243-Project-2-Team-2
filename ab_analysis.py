@@ -542,6 +542,105 @@ def _format_float(x: float, nd: int = 4) -> str:
     return f"{x:.{nd}f}"
 
 
+def required_n_per_arm(
+    effect_size_d: float,
+    alpha: float = 0.05,
+    power: float = 0.80,
+) -> int:
+    """Required sample size per arm for a two-sample, two-sided *t*-test.
+
+    Uses the standard asymptotic z-approximation:
+        n_per_arm = 2 * (z_{α/2} + z_{1-β})^2 / d^2
+    Rounds up to the nearest integer. Good to 2–3 digits vs exact
+    non-central *t* calculations for |d| > 0.2; sufficient for
+    planning-stage sample size decisions.
+    """
+    if abs(effect_size_d) < 1e-6 or not np.isfinite(effect_size_d):
+        return 10**9  # effectively infeasible
+    z_alpha = float(stats.norm.ppf(1 - alpha / 2))
+    z_beta = float(stats.norm.ppf(power))
+    n = 2.0 * (z_alpha + z_beta) ** 2 / (effect_size_d ** 2)
+    return int(np.ceil(n))
+
+
+def minimum_detectable_effect(
+    n_per_arm: int,
+    alpha: float = 0.05,
+    power: float = 0.80,
+) -> float:
+    """Inverse of ``required_n_per_arm``: the smallest |Cohen's d|
+    detectable at the given N, α, and power.
+    """
+    if n_per_arm < 2:
+        return float("inf")
+    z_alpha = float(stats.norm.ppf(1 - alpha / 2))
+    z_beta = float(stats.norm.ppf(power))
+    return float((z_alpha + z_beta) * np.sqrt(2.0 / n_per_arm))
+
+
+def plot_forest(results_df: pd.DataFrame, out_path: Path) -> None:
+    """Forest plot of per-metric mean-difference effects with 95% bootstrap CIs.
+
+    Standard industry visualization for A/B-test multi-metric results.
+    Each row is a metric; the dot is the observed mean-difference
+    ``B minus A`` point estimate, the horizontal bar is the 95 %
+    percentile-bootstrap CI (already on the mean-difference scale in the
+    ``ci_low`` / ``ci_high`` columns of the ComparisonResult), and a
+    dashed vertical line at zero marks the no-effect reference. Colours
+    rows green if the CI excludes zero (effect detected), grey if it
+    straddles zero (null). Cohen's d is annotated next to each row for
+    effect-magnitude context, but the x-axis scale is the raw mean
+    difference so the error bars are consistent with the CI.
+    """
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    metrics = list(results_df["metric"])
+    lows = list(results_df["ci_low"])
+    highs = list(results_df["ci_high"])
+    a_means = list(results_df["group_a_mean"])
+    b_means = list(results_df["group_b_mean"])
+    d_values = list(results_df["effect"])  # Cohen's d for continuous; prop-diff for binary
+    labels = [m.replace("_", " ") for m in metrics]
+
+    y_positions = np.arange(len(metrics))[::-1]
+    mean_diffs = [(b - a) if np.isfinite(a) and np.isfinite(b) else float("nan")
+                  for a, b in zip(a_means, b_means)]
+
+    for y, center, lo, hi, d_val in zip(y_positions, mean_diffs, lows, highs, d_values):
+        if np.isfinite(lo) and np.isfinite(hi):
+            colour = "#10b981" if (lo > 0 or hi < 0) else "#94a3b8"
+        else:
+            colour = "#94a3b8"
+        # errorbar expects non-negative distances from center
+        if np.isfinite(center) and np.isfinite(lo) and np.isfinite(hi):
+            err_lo = max(0.0, center - lo)
+            err_hi = max(0.0, hi - center)
+            ax.errorbar(
+                center, y, xerr=[[err_lo], [err_hi]],
+                fmt="o", color=colour, capsize=5, markersize=10,
+                linewidth=2.5, ecolor=colour,
+            )
+            # Annotate Cohen's d (or Δp for the binary) at the right edge
+            x_text = hi + 0.01 * (max(highs) - min(lows) or 1.0)
+            ax.annotate(
+                f"d={d_val:+.2f}" if abs(d_val) < 5 else f"d={d_val:.1f}",
+                xy=(x_text, y), ha="left", va="center", fontsize=9, color=colour,
+            )
+    ax.axvline(0, linestyle="--", color="#334155", alpha=0.6, linewidth=1)
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels(labels)
+    ax.set_xlabel("Mean difference (Group B minus Group A) with 95 % bootstrap CI")
+    ax.set_title("Figure 4 — Forest plot of metric effects with 95 % CI")
+    ax.grid(axis="x", alpha=0.3)
+    # Expand x-limits slightly to make room for annotations
+    x_min = min(lows) if all(np.isfinite(x) for x in lows) else -1
+    x_max = max(highs) if all(np.isfinite(x) for x in highs) else 1
+    span = x_max - x_min
+    ax.set_xlim(x_min - 0.08 * span, x_max + 0.20 * span)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 def _power_welch_t(effect_size_d: float, n_a: int, n_b: int, alpha: float = 0.05) -> float:
     """Approximate two-sided Welch's t power for Cohen's d, balanced-equivalent formulation."""
     if n_a < 2 or n_b < 2 or not np.isfinite(effect_size_d):
@@ -759,6 +858,20 @@ def compute_fill_values(
     else:
         fill["subgroup_table"] = "_(subgroup analysis unavailable \u2014 no events provided)_"
 
+    # --- §2.6 Sample size / MDE placeholders --------------------------------
+    # Target effect sizes and their required N at alpha=0.05, power=0.8
+    n_for_small = required_n_per_arm(0.2)
+    n_for_medium = required_n_per_arm(0.5)
+    n_for_target = required_n_per_arm(0.4)
+    # MDE at the N we actually have (per arm)
+    n_per_arm_actual = min(r1["group_a_n"], r1["group_b_n"])
+    mde_actual = minimum_detectable_effect(n_per_arm_actual)
+    fill["n_for_small_effect"] = str(n_for_small)
+    fill["n_for_medium_effect"] = str(n_for_medium)
+    fill["n_for_target_effect"] = str(n_for_target)
+    fill["n_per_arm_actual"] = str(n_per_arm_actual)
+    fill["mde_actual"] = _format_float(mde_actual, 3)
+
     # --- §5 Narrative — auto-drafted from the numbers -------------------------
     fill["interp_paragraph_1"] = _draft_interpretation(r1, r2, r3, r4)
     fill["takeaway_1"] = _takeaway_primary(r1)
@@ -944,6 +1057,7 @@ def main(argv: list[str] | None = None) -> int:
         plot_apply_rate_by_group(session_df, out / "apply_rate_by_group.png")
         plot_preview_apply_funnel(session_df, out / "preview_apply_funnel.png")
         plot_successful_actions_distribution(session_df, out / "successful_actions_distribution.png")
+        plot_forest(results, out / "forest_plot.png")
         print(f"\nFigures written to {out.resolve()}/")
 
     if args.fill_template:
