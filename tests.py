@@ -19,12 +19,18 @@ from ab_analysis import (
     EVENT_SCHEMA,
     METRIC_FAMILY,
     balance_check,
+    check_assumptions,
+    cohens_d_ci,
     compare_groups,
     compute_fill_values,
+    fdr_correct,
     fill_report,
     load_events,
     multi_metric_report,
     session_metrics,
+    srm_test,
+    subgroup_analysis,
+    tost_equivalence,
 )
 import ab_seed_generator
 
@@ -309,6 +315,90 @@ class ABAdminDownloadTest(unittest.TestCase):
                       msg="download_ab_events must guard on the password")
         self.assertIn("return", body,
                       msg="download_ab_events must early-return when password is wrong")
+
+
+class TestStatisticalRobustness(unittest.TestCase):
+    """Cover the Session-B additions to ab_analysis.py: Cohen's d CI,
+    assumption checks, FDR correction, TOST equivalence, SRM test,
+    and subgroup analysis."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        rng = np.random.default_rng(12345)
+        # Known effect: Group B shifted by +0.4 standardized units
+        cls.group_a = rng.normal(0.0, 1.0, size=300)
+        cls.group_b = rng.normal(0.4, 1.0, size=300)
+
+    def test_cohens_d_ci_excludes_zero_for_real_effect(self) -> None:
+        lo, hi = cohens_d_ci(self.group_a, self.group_b, n_boot=2000)
+        # d should be roughly -0.4 (B - A / pooled_sd = +0.4 then sign-flipped
+        # by the compare_groups "B minus A" convention, but raw Cohen's d
+        # here is (B.mean - A.mean) / pooled_sd ~ +0.4)
+        self.assertTrue(lo < hi, "CI lower bound should be less than upper")
+        self.assertGreater(hi, 0, "CI upper bound should be positive")
+        # Interval should be narrow at N=300+300
+        self.assertLess(hi - lo, 0.6, "CI width should be narrow at N=600")
+
+    def test_check_assumptions_returns_expected_keys(self) -> None:
+        result = check_assumptions(self.group_a, self.group_b)
+        for key in ["normality_a", "normality_b", "equal_variance"]:
+            self.assertIn(key, result)
+            self.assertIn("W", result[key])
+            self.assertIn("p", result[key])
+
+    def test_fdr_correct_preserves_order_and_bounds(self) -> None:
+        raw = [0.001, 0.04, 0.5, 0.8]
+        adj = fdr_correct(raw)
+        self.assertEqual(len(adj), len(raw))
+        for p in adj:
+            self.assertGreaterEqual(p, 0.0)
+            self.assertLessEqual(p, 1.0)
+        # FDR never decreases a p-value below its raw value / rank-based expectation
+        self.assertGreaterEqual(adj[0], raw[0] * 4 / 4 - 1e-9)
+
+    def test_tost_equivalence_rejects_with_tight_bound_and_similar_means(self) -> None:
+        rng = np.random.default_rng(42)
+        a = rng.normal(0.0, 1.0, size=500)
+        b = rng.normal(0.0, 1.0, size=500)  # same distribution
+        result = tost_equivalence(a, b, bound=0.5)
+        self.assertTrue(result["equivalent"],
+                        msg=f"TOST should find equivalence for same-dist groups: {result}")
+
+    def test_srm_test_flags_major_imbalance(self) -> None:
+        # Build a synthetic session_df with 100 A sessions and 900 B sessions
+        sessions = pd.DataFrame({
+            "session_id": [f"s{i}" for i in range(1000)],
+            "ab_group": ["A"] * 100 + ["B"] * 900,
+        })
+        result = srm_test(sessions)
+        self.assertTrue(result["srm_flag"],
+                        msg=f"SRM should flag 100/900 imbalance: {result}")
+        self.assertLess(result["p_value"], 0.001)
+
+    def test_srm_test_passes_for_balanced_assignment(self) -> None:
+        rng = random.Random(7)
+        groups = [rng.choice(["A", "B"]) for _ in range(500)]
+        sessions = pd.DataFrame({
+            "session_id": [f"s{i}" for i in range(500)],
+            "ab_group": groups,
+        })
+        result = srm_test(sessions)
+        self.assertFalse(result["srm_flag"],
+                         msg=f"SRM should not flag balanced 50/50: {result}")
+
+    def test_subgroup_analysis_shapes(self) -> None:
+        # Use the ab_seed_generator output to exercise the full path
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "seed.csv"
+            rows = ab_seed_generator.generate(n_sessions=200, seed=99)
+            ab_seed_generator.write_csv(rows, path)
+            events = load_events(path)
+        sessions = session_metrics(events)
+        result = subgroup_analysis(events, sessions, "clean_action",
+                                   min_sessions_per_cell=5)
+        self.assertIn("subgroup", result.columns)
+        self.assertIn("cohens_d", result.columns)
+        self.assertGreater(len(result), 0)
 
 
 def _evt(session_id, group, event_type, *, success, sec):

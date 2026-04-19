@@ -163,6 +163,197 @@ def _cohens_d(a: np.ndarray, b: np.ndarray) -> float:
     return float((b.mean() - a.mean()) / pooled)
 
 
+def cohens_d_ci(
+    a: np.ndarray,
+    b: np.ndarray,
+    n_boot: int = 10_000,
+    rng: np.random.Generator | None = None,
+) -> tuple[float, float]:
+    """Bootstrap 95% CI on Cohen's *d* itself (the standardised effect size).
+
+    Percentile bootstrap — resamples each group with replacement ``n_boot``
+    times and reports the 2.5th and 97.5th percentiles of the resampled *d*
+    distribution. Complements the existing mean-difference CI in
+    ``_bootstrap_diff_ci``.
+    """
+    if rng is None:
+        rng = np.random.default_rng(20260418)
+    if len(a) < 2 or len(b) < 2:
+        return (float("nan"), float("nan"))
+    ds = np.empty(n_boot, dtype=float)
+    for i in range(n_boot):
+        sa = rng.choice(a, size=len(a), replace=True)
+        sb = rng.choice(b, size=len(b), replace=True)
+        ds[i] = _cohens_d(sa, sb)
+    lo, hi = np.quantile(ds, [0.025, 0.975])
+    return (float(lo), float(hi))
+
+
+def check_assumptions(a: np.ndarray, b: np.ndarray) -> dict:
+    """Assumption checks for parametric two-sample comparison.
+
+    Returns Shapiro-Wilk normality tests per group (W statistic + p-value)
+    and Levene's test for equal variance across the pooled sample. The
+    caller can decide whether to trust Welch's *t*-test or fall back to
+    Mann-Whitney U based on the p-values reported here.
+    """
+    result = {"normality_a": {"W": float("nan"), "p": float("nan")},
+              "normality_b": {"W": float("nan"), "p": float("nan")},
+              "equal_variance": {"W": float("nan"), "p": float("nan")}}
+    # Shapiro-Wilk caps at N=5000; sample if needed
+    rng = np.random.default_rng(20260418)
+    def _sw(x):
+        if len(x) < 3:
+            return float("nan"), float("nan")
+        if len(x) > 5000:
+            x = rng.choice(x, size=5000, replace=False)
+        try:
+            W, p = stats.shapiro(x)
+            return float(W), float(p)
+        except Exception:
+            return float("nan"), float("nan")
+    W_a, p_a = _sw(np.asarray(a, dtype=float))
+    W_b, p_b = _sw(np.asarray(b, dtype=float))
+    result["normality_a"] = {"W": W_a, "p": p_a}
+    result["normality_b"] = {"W": W_b, "p": p_b}
+    if len(a) >= 2 and len(b) >= 2:
+        try:
+            W_lev, p_lev = stats.levene(a, b, center="median")
+            result["equal_variance"] = {"W": float(W_lev), "p": float(p_lev)}
+        except Exception:
+            pass
+    return result
+
+
+def fdr_correct(p_values: list[float]) -> list[float]:
+    """Benjamini-Hochberg FDR correction on a list of raw p-values.
+
+    Returns the adjusted p-values in the same order as the input.
+    Less conservative than Bonferroni at the same family-wise level and
+    is the industry-standard correction for A/B-test multi-metric families.
+    """
+    p = np.asarray(p_values, dtype=float)
+    n = len(p)
+    if n == 0:
+        return []
+    order = np.argsort(p)
+    ranks = np.empty(n, dtype=int)
+    ranks[order] = np.arange(1, n + 1)
+    adjusted = p * n / ranks
+    # Enforce monotonicity (BH step-up)
+    sorted_p = adjusted[order]
+    for i in range(n - 2, -1, -1):
+        sorted_p[i] = min(sorted_p[i], sorted_p[i + 1])
+    adjusted[order] = sorted_p
+    return [float(min(x, 1.0)) for x in adjusted]
+
+
+def tost_equivalence(
+    a: np.ndarray,
+    b: np.ndarray,
+    bound: float,
+    alpha: float = 0.05,
+) -> dict:
+    """Two One-Sided Tests (TOST) for equivalence of means.
+
+    Follows Lakens (2017). The equivalence bounds are ``[-bound, +bound]``
+    on the mean-difference scale. Rejects the null of "different means"
+    (i.e., concludes equivalence) if the max of the two one-sided p-values
+    is < ``alpha``. Useful for formally claiming that a null secondary
+    metric genuinely shows no meaningful effect rather than merely
+    "failing to reject".
+    """
+    if len(a) < 2 or len(b) < 2:
+        return {"p_lower": float("nan"), "p_upper": float("nan"),
+                "max_p": float("nan"), "equivalent": False,
+                "bound": bound, "mean_diff": float("nan")}
+    diff = float(b.mean() - a.mean())
+    se = float(np.sqrt(a.var(ddof=1) / len(a) + b.var(ddof=1) / len(b)))
+    if se == 0:
+        return {"p_lower": 0.0, "p_upper": 0.0, "max_p": 0.0,
+                "equivalent": True, "bound": bound, "mean_diff": diff}
+    df = len(a) + len(b) - 2  # conservative
+    t_lower = (diff - (-bound)) / se
+    t_upper = (diff - bound) / se
+    p_lower = 1 - stats.t.cdf(t_lower, df)   # H0: diff <= -bound
+    p_upper = stats.t.cdf(t_upper, df)        # H0: diff >= +bound
+    max_p = float(max(p_lower, p_upper))
+    return {"p_lower": float(p_lower), "p_upper": float(p_upper),
+            "max_p": max_p, "equivalent": bool(max_p < alpha),
+            "bound": float(bound), "mean_diff": diff}
+
+
+def srm_test(session_df: pd.DataFrame, expected_a: float = 0.5) -> dict:
+    """Sample Ratio Mismatch (SRM) χ² test.
+
+    Industry-standard validity check (Microsoft / LinkedIn / Uber) that
+    asks whether observed arm proportions are consistent with the
+    planned 50/50 random assignment. A significant SRM (p < 0.01 by
+    convention) indicates a bug in assignment, logging, or an unbalanced
+    dropout pattern that invalidates downstream causal inference.
+    """
+    sessions = session_df.drop_duplicates("session_id")[["session_id", "ab_group"]]
+    n_a = int((sessions["ab_group"] == "A").sum())
+    n_b = int((sessions["ab_group"] == "B").sum())
+    n = n_a + n_b
+    if n == 0:
+        return {"n_a": 0, "n_b": 0, "chi2": float("nan"),
+                "p_value": float("nan"), "ratio_observed": float("nan"),
+                "srm_flag": False}
+    expected_a_n = n * expected_a
+    expected_b_n = n * (1 - expected_a)
+    chi2 = ((n_a - expected_a_n) ** 2 / expected_a_n
+            + (n_b - expected_b_n) ** 2 / expected_b_n)
+    p_value = 1 - stats.chi2.cdf(chi2, df=1)
+    return {"n_a": n_a, "n_b": n_b, "chi2": float(chi2),
+            "p_value": float(p_value),
+            "ratio_observed": float(n_a / n),
+            "srm_flag": bool(p_value < 0.01)}
+
+
+def subgroup_analysis(
+    events: pd.DataFrame,
+    session_df: pd.DataFrame,
+    subgroup_col: str = "clean_action",
+    metric: str = "apply_rate",
+    min_sessions_per_cell: int = 30,
+) -> pd.DataFrame:
+    """Stratified analysis of the primary metric by a subgroup column.
+
+    For each level of ``subgroup_col`` in ``events``, assigns each
+    session to the level it used most and runs the same Welch's t-test /
+    Cohen's d comparison as ``compare_groups``. Levels with fewer than
+    ``min_sessions_per_cell`` sessions per arm are skipped and reported
+    as insufficient N.
+    """
+    # Assign each session to its modal subgroup value
+    mode_by_session = (events.groupby("session_id")[subgroup_col]
+                       .agg(lambda s: s.mode().iloc[0] if not s.mode().empty else None))
+    session_with_mode = session_df.copy()
+    session_with_mode[subgroup_col] = session_with_mode["session_id"].map(mode_by_session)
+
+    rows = []
+    for level in sorted(session_with_mode[subgroup_col].dropna().unique()):
+        sub = session_with_mode[session_with_mode[subgroup_col] == level]
+        a = sub.loc[sub["ab_group"] == "A", metric].to_numpy(dtype=float)
+        b = sub.loc[sub["ab_group"] == "B", metric].to_numpy(dtype=float)
+        n_a, n_b = len(a), len(b)
+        if n_a < min_sessions_per_cell or n_b < min_sessions_per_cell:
+            rows.append({"subgroup": level, "n_a": n_a, "n_b": n_b,
+                         "mean_a": float(a.mean()) if n_a else float("nan"),
+                         "mean_b": float(b.mean()) if n_b else float("nan"),
+                         "cohens_d": float("nan"), "p_value": float("nan"),
+                         "note": "insufficient N"})
+            continue
+        d = _cohens_d(a, b)
+        _, p = stats.ttest_ind(a, b, equal_var=False)
+        rows.append({"subgroup": level, "n_a": n_a, "n_b": n_b,
+                     "mean_a": float(a.mean()), "mean_b": float(b.mean()),
+                     "cohens_d": float(d), "p_value": float(p),
+                     "note": ""})
+    return pd.DataFrame(rows)
+
+
 def compare_groups(
     session_df: pd.DataFrame,
     metric: str,
@@ -475,6 +666,98 @@ def compute_fill_values(
     fill["power_1"] = _format_float(power, 3)
     # Sensitivity: identical for this logger (we do not partition error-only sessions)
     fill["p_1_incl"] = _format_float(r1["p_value"]) + " (unchanged — log does not partition error-only sessions)"
+
+    # --- §4.6 Statistical robustness -----------------------------------------
+    # Cohen's d CI on the primary metric
+    apply_a = session_df.loc[session_df["ab_group"] == "A", "apply_rate"].to_numpy(dtype=float)
+    apply_b = session_df.loc[session_df["ab_group"] == "B", "apply_rate"].to_numpy(dtype=float)
+    d_lo, d_hi = cohens_d_ci(apply_a, apply_b, n_boot=n_boot, rng=np.random.default_rng(seed))
+    fill["d_1_lo"] = _format_float(d_lo)
+    fill["d_1_hi"] = _format_float(d_hi)
+
+    # Assumption checks for the primary metric
+    assump = check_assumptions(apply_a, apply_b)
+    fill["sw_W_a"] = _format_float(assump["normality_a"]["W"])
+    fill["sw_p_a"] = _format_float(assump["normality_a"]["p"])
+    fill["sw_W_b"] = _format_float(assump["normality_b"]["W"])
+    fill["sw_p_b"] = _format_float(assump["normality_b"]["p"])
+    fill["lev_W"] = _format_float(assump["equal_variance"]["W"])
+    fill["lev_p"] = _format_float(assump["equal_variance"]["p"])
+    # Human-readable decisions at alpha=0.05
+    fill["sw_decision_a"] = (
+        "normal" if (np.isfinite(assump["normality_a"]["p"])
+                     and assump["normality_a"]["p"] >= 0.05) else "non-normal"
+    )
+    fill["sw_decision_b"] = (
+        "normal" if (np.isfinite(assump["normality_b"]["p"])
+                     and assump["normality_b"]["p"] >= 0.05) else "non-normal"
+    )
+    fill["lev_decision"] = (
+        "equal variances supported"
+        if (np.isfinite(assump["equal_variance"]["p"])
+            and assump["equal_variance"]["p"] >= 0.05)
+        else "unequal variances \u2014 Welch's t-test (used here) is robust to this"
+    )
+
+    # FDR-corrected p-values across the 4 primary-family tests
+    raw_ps = [r1["p_value"], r2["p_value"], r3["p_value"], r4["p_value"]]
+    fdr_ps = fdr_correct(raw_ps)
+    fill["p_1_fdr"] = _format_float(fdr_ps[0])
+    fill["p_2_fdr"] = _format_float(fdr_ps[1])
+    fill["p_3_fdr"] = _format_float(fdr_ps[2])
+    fill["p_4_fdr"] = _format_float(fdr_ps[3])
+
+    # TOST equivalence test on the two null secondaries (apply_success_rate
+    # and successful_actions_per_session). Use ±0.1 as the equivalence bound
+    # on the mean-difference scale — a conservative threshold: differences
+    # smaller than 10 % of the outcome scale are treated as practically
+    # equivalent.
+    succ_a = session_df.loc[session_df["ab_group"] == "A", "apply_success_rate"].to_numpy(dtype=float)
+    succ_b = session_df.loc[session_df["ab_group"] == "B", "apply_success_rate"].to_numpy(dtype=float)
+    tost3 = tost_equivalence(succ_a, succ_b, bound=0.1)
+    fill["tost_3_lower_p"] = _format_float(tost3["p_lower"])
+    fill["tost_3_upper_p"] = _format_float(tost3["p_upper"])
+    fill["tost_3_decision"] = "equivalent" if tost3["equivalent"] else "not equivalent"
+
+    acts_a = session_df.loc[session_df["ab_group"] == "A", "successful_actions_per_session"].to_numpy(dtype=float)
+    acts_b = session_df.loc[session_df["ab_group"] == "B", "successful_actions_per_session"].to_numpy(dtype=float)
+    tost4 = tost_equivalence(acts_a, acts_b, bound=0.3)  # 0.3 successful actions / session
+    fill["tost_4_lower_p"] = _format_float(tost4["p_lower"])
+    fill["tost_4_upper_p"] = _format_float(tost4["p_upper"])
+    fill["tost_4_decision"] = "equivalent" if tost4["equivalent"] else "not equivalent"
+
+    # SRM (Sample Ratio Mismatch) \u03c7\u00b2 test
+    srm = srm_test(session_df)
+    fill["srm_chi2"] = _format_float(srm["chi2"], 3)
+    fill["srm_p"] = _format_float(srm["p_value"])
+    fill["srm_ratio"] = _format_float(srm["ratio_observed"], 3)
+    fill["srm_flag_text"] = (
+        "no SRM detected" if not srm["srm_flag"]
+        else "SRM DETECTED \u2014 assignment may be biased; interpret with caution"
+    )
+
+    # --- \u00a74.7 Subgroup analysis by cleaning action ---------------------------
+    # Compute subgroup table if events are available (requires the caller to
+    # supply them via the fill pipeline; we'll recompute it there since
+    # compute_fill_values already has events). Produce a markdown table.
+    if events is not None and len(events) > 0:
+        sub_df = subgroup_analysis(events, session_df, "clean_action")
+        lines = [
+            "| Cleaning action | N (A / B) | Mean apply_rate (A / B) | Cohen's *d* | *p* (Welch) | Notes |",
+            "|---|---|---|---|---|---|",
+        ]
+        em_dash = "\u2014"
+        for _, row in sub_df.iterrows():
+            note = row["note"] if row["note"] else em_dash
+            lines.append(
+                f"| `{row['subgroup']}` | {int(row['n_a'])} / {int(row['n_b'])} | "
+                f"{_format_float(row['mean_a'])} / {_format_float(row['mean_b'])} | "
+                f"{_format_float(row['cohens_d'])} | {_format_float(row['p_value'])} | "
+                f"{note} |"
+            )
+        fill["subgroup_table"] = "\n".join(lines)
+    else:
+        fill["subgroup_table"] = "_(subgroup analysis unavailable \u2014 no events provided)_"
 
     # --- §5 Narrative — auto-drafted from the numbers -------------------------
     fill["interp_paragraph_1"] = _draft_interpretation(r1, r2, r3, r4)
