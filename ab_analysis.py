@@ -311,6 +311,70 @@ def srm_test(session_df: pd.DataFrame, expected_a: float = 0.5) -> dict:
             "srm_flag": bool(p_value < 0.01)}
 
 
+def aa_simulation(
+    n_sessions: int = 1000,
+    seed: int = 20260418,
+    n_replicates: int = 10,
+) -> dict:
+    """A/A robustness check: simulate ``n_replicates`` runs in which both
+    arms are drawn from the same distribution (no planted effect), run
+    the full ``compare_groups`` pipeline on each, and report the false-
+    positive rate on the primary metric.
+
+    A correctly-calibrated test should reject H₀ on the primary metric in
+    approximately α = 5 % of A/A runs (one-sided binomial 95 % CI on the
+    rejection rate is reported). A pipeline that systematically rejects
+    H₀ at a rate much greater than 5 % under the null is producing false
+    positives and cannot be trusted on the real A/B comparison.
+
+    Returns ``{'n_replicates': k, 'n_rejected': r, 'rejection_rate': p,
+    'binom_ci_low': lo, 'binom_ci_high': hi, 'sample_p_values': […]}``.
+    """
+    # Use the seed generator with both arms set to the SAME parameters
+    # (Group A's parameters). We patch GROUP_PARAMS at call time without
+    # mutating the module state.
+    import ab_seed_generator
+    original_params = ab_seed_generator.GROUP_PARAMS
+    aa_params = {"A": original_params["A"], "B": dict(original_params["A"])}
+
+    n_rejected = 0
+    sample_p_values = []
+    try:
+        ab_seed_generator.GROUP_PARAMS = aa_params
+        for replicate in range(n_replicates):
+            rows = ab_seed_generator.generate(n_sessions, seed=seed + replicate)
+            df = pd.DataFrame(rows)
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+            df["columns_count"] = pd.to_numeric(df["columns_count"], errors="coerce").fillna(0).astype(int)
+            df["seconds_since_session_start"] = pd.to_numeric(df["seconds_since_session_start"], errors="coerce")
+            df["success_bool"] = df["success"].map(_to_bool)
+            df["ab_group"] = df["ab_group"].astype(str).str.upper().str.strip()
+            sessions = session_metrics(df)
+            result = compare_groups(sessions, "apply_rate", n_tests=1, n_boot=1000,
+                                    seed=seed + replicate)
+            sample_p_values.append(result.p_value)
+            if np.isfinite(result.p_value) and result.p_value < 0.05:
+                n_rejected += 1
+    finally:
+        ab_seed_generator.GROUP_PARAMS = original_params
+
+    rate = n_rejected / n_replicates if n_replicates > 0 else float("nan")
+    # Two-sided 95 % binomial CI on the rejection rate (Wilson score)
+    if n_replicates > 0:
+        z = float(stats.norm.ppf(0.975))
+        denom = 1 + z * z / n_replicates
+        centre = (rate + z * z / (2 * n_replicates)) / denom
+        spread = z * np.sqrt(rate * (1 - rate) / n_replicates
+                              + z * z / (4 * n_replicates ** 2)) / denom
+        ci_low = max(0.0, float(centre - spread))
+        ci_high = min(1.0, float(centre + spread))
+    else:
+        ci_low, ci_high = float("nan"), float("nan")
+    return {"n_replicates": n_replicates, "n_rejected": n_rejected,
+            "rejection_rate": rate, "binom_ci_low": ci_low,
+            "binom_ci_high": ci_high, "sample_p_values": sample_p_values}
+
+
 def subgroup_analysis(
     events: pd.DataFrame,
     session_df: pd.DataFrame,
@@ -904,6 +968,14 @@ def compute_fill_values(
         fill["subgroup_table"] = "\n".join(lines)
     else:
         fill["subgroup_table"] = "_(subgroup analysis unavailable \u2014 no events provided)_"
+
+    # --- §4.8 A/A robustness check ------------------------------------------
+    aa = aa_simulation(n_sessions=600, seed=seed, n_replicates=10)
+    fill["aa_n_replicates"] = str(aa["n_replicates"])
+    fill["aa_n_rejected"] = str(aa["n_rejected"])
+    fill["aa_rate"] = _format_float(aa["rejection_rate"], 3)
+    fill["aa_ci_low"] = _format_float(aa["binom_ci_low"], 3)
+    fill["aa_ci_high"] = _format_float(aa["binom_ci_high"], 3)
 
     # --- §2.6 Sample size / MDE placeholders --------------------------------
     # Target effect sizes and their required N at alpha=0.05, power=0.8

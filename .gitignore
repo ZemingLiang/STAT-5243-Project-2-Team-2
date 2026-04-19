@@ -7,6 +7,7 @@ Project*.pdf
 grading rubic.png
 # Runtime and derived files
 ab_test_events.csv
-REPORT.filled.md
 *.md.bak
+# REPORT.filled.md is committed (it's the rendered version of REPORT.md);
+# regenerate it with `ab_analysis.py --fill-template REPORT.md --fill-out REPORT.filled.md`
 

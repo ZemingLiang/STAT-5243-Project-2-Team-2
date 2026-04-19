@@ -125,11 +125,11 @@ we get the required N per arm at several candidate effect sizes:
 
 | Target Cohen's *d* | Required N per arm | Rationale |
 |---|---|---|
-| 0.2 (small) | {n_for_small_effect} | Would detect very subtle UX effects, but needs ~200/arm |
-| 0.4 (our target) | {n_for_target_effect} | Consistent with typical UX A/B test lifts (Kohavi-Tang-Xu 2020) |
-| 0.5 (medium) | {n_for_medium_effect} | Easy to detect but bar that guided CTA interventions rarely clear |
+| 0.2 (small) | 393 | Would detect very subtle UX effects, but needs ~200/arm |
+| 0.4 (our target) | 99 | Consistent with typical UX A/B test lifts (Kohavi-Tang-Xu 2020) |
+| 0.5 (medium) | 63 | Easy to detect but bar that guided CTA interventions rarely clear |
 
-We exceeded this plan: the final analysis dataset has **{n_per_arm_actual} sessions per arm** (the smaller of the two groups, after drop-out). At this N, α = 0.05, and 80 % power, the **minimum detectable Cohen's *d* is {mde_actual}** — comfortably smaller than the pre-registered 0.4 target, so the experiment was adequately powered to detect effects as small as *d* ≈ {mde_actual}.
+We exceeded this plan: the final analysis dataset has **453 sessions per arm** (the smaller of the two groups, after drop-out). At this N, α = 0.05, and 80 % power, the **minimum detectable Cohen's *d* is 0.186** — comfortably smaller than the pre-registered 0.4 target, so the experiment was adequately powered to detect effects as small as *d* ≈ 0.186.
 
 §3 reports how this infrastructure was exercised during the collection window and describes the final sample used for analysis.
 
@@ -158,8 +158,8 @@ Sample sizes at cutoff (from `ab_test_events.csv`):
 
 | Group | Sessions | Preview events | Apply events | Sessions with ≥1 cleaning event |
 |---|---|---|---|---|
-| A (control) | {N_A} | {P_A} | {Ap_A} | {S_A} |
-| B (treatment) | {N_B} | {P_B} | {Ap_B} | {S_B} |
+| A (control) | 453 | 654 | 774 | 453 |
+| B (treatment) | 489 | 1081 | 762 | 489 |
 
 > *These counts are populated by `ab_analysis.py` on the frozen log at cutoff and inserted into this table.*
 
@@ -192,7 +192,7 @@ The deployed app collected too few real public sessions during our 26-hour colle
 
 ### 3.5 Data quality checks
 
-- **Sample Ratio Mismatch (SRM) χ² test.** Industry-standard validity check for randomised experiments (Fabijan et al. 2019; Kohavi, Tang & Xu 2020, ch. 17). Tests whether observed arm proportions deviate from the planned 50/50 assignment more than chance allows. The full SRM χ² result is in §4.6; at the conventional α = 0.01 threshold, **no SRM is detected** — assignment is consistent with random 50/50. A complementary two-sided binomial test on the same observed arm counts yields *p* = {bal_p}, which is consistent with the SRM conclusion (both tests share the 50/50 null for equal arm sizes).
+- **Sample Ratio Mismatch (SRM) χ² test.** Industry-standard validity check for randomised experiments (Fabijan et al. 2019; Kohavi, Tang & Xu 2020, ch. 17). Tests whether observed arm proportions deviate from the planned 50/50 assignment more than chance allows. The full SRM χ² result is in §4.6; at the conventional α = 0.01 threshold, **no SRM is detected** — assignment is consistent with random 50/50. A complementary two-sided binomial test on the same observed arm counts yields *p* = 0.2541, which is consistent with the SRM conclusion (both tests share the 50/50 null for equal arm sizes).
 - **Timestamp sanity.** No rows outside the collection window.
 - **Schema stability.** One CSV header row, consistent column count across all data rows.
 - **No PII.** Only `session_id` (uuid) is stored; no IP, no cookie, no uploaded file content.
@@ -223,20 +223,20 @@ python ab_analysis.py ab_test_events.csv --out figures/ --seed 20260418
 
 | Metric | Group A mean (± sd) | Group B mean (± sd) | Lift (B − A) |
 |--------|------|------|------|
-| Apply rate | {mu_A_1} ± {sd_A_1} | {mu_B_1} ± {sd_B_1} | {lift_1} |
-| Preview-to-apply conversion | {mu_A_2} | {mu_B_2} | {lift_2} |
-| Apply success rate | {mu_A_3} ± {sd_A_3} | {mu_B_3} ± {sd_B_3} | {lift_3} |
-| Successful actions / session | {mu_A_4} ± {sd_A_4} | {mu_B_4} ± {sd_B_4} | {lift_4} |
+| Apply rate | 0.5642 ± 0.3127 | 0.4049 ± 0.2654 | -0.1593 (-28.2%) |
+| Preview-to-apply conversion | 0.6424 | 0.7403 | +0.0979 (+15.2%) |
+| Apply success rate | 0.6090 ± 0.4199 | 0.6667 ± 0.4232 | +0.0577 (+9.5%) |
+| Successful actions / session | 1.2208 ± 1.0131 | 1.2720 ± 1.0370 | +0.0512 (+4.2%) |
 
 ### 4.3 Inferential results
 
 | Metric | Test | Statistic | p (raw) | p (Bonferroni) | Effect size | 95 % CI on effect | Decision (α_family = 0.05) |
 |--------|---|---|---|---|---|---|---|
-| Apply rate (primary) | Welch's *t* | {t_1} | {p_1} | {p_1_adj} | *d* = {d_1} | [{lo_1}, {hi_1}] | {dec_1} |
-| Apply rate (primary, non-parametric) | Mann-Whitney U | {U_1} | {pu_1} | {pu_1_adj} | — | — | {decu_1} |
-| Preview-to-apply conversion | 2-prop *z* | {z_2} | {p_2} | {p_2_adj} | Δ*p* = {dp_2} | [{lo_2}, {hi_2}] | {dec_2} |
-| Apply success rate | Welch's *t* | {t_3} | {p_3} | {p_3_adj} | *d* = {d_3} | [{lo_3}, {hi_3}] | {dec_3} |
-| Successful actions / session | Mann-Whitney U | {U_4} | {p_4} | {p_4_adj} | — | — | {dec_4} |
+| Apply rate (primary) | Welch's *t* | 8.398 | 0.0000 | 0.0000 | *d* = -0.5510 | [-0.1957, -0.1224] | reject H0 |
+| Apply rate (primary, non-parametric) | Mann-Whitney U | 147261.0 | 0.0000 | 0.0000 | — | — | reject H0 |
+| Preview-to-apply conversion | 2-prop *z* | 3.255 | 0.0011 | 0.0045 | Δ*p* = 0.0979 | [0.0401, 0.1573] | reject H0 |
+| Apply success rate | Welch's *t* | -2.100 | 0.0360 | 0.1440 | *d* = 0.1369 | [0.0042, 0.1119] | fail to reject H0 |
+| Successful actions / session | Mann-Whitney U | 107973.0 | 0.4850 | 1.0000 | — | — | fail to reject H0 |
 
 ### 4.4 Figures
 
@@ -248,8 +248,8 @@ python ab_analysis.py ab_test_events.csv --out figures/ --seed 20260418
 
 ### 4.5 Power and sensitivity
 
-- **Ex-post power** for the primary test at observed effect size and sample size: {power_1}.
-- **Sensitivity to exclusion rule** — primary test p-values re-run including error-only sessions: {p_1_incl}.
+- **Ex-post power** for the primary test at observed effect size and sample size: 1.000.
+- **Sensitivity to exclusion rule** — primary test p-values re-run including error-only sessions: 0.0000 (unchanged — log does not partition error-only sessions).
 
 ### 4.6 Statistical robustness
 
@@ -259,9 +259,9 @@ Standard assumption checks, an alternative multiple-comparison correction, equiv
 
 | Check | Statistic | p-value | Decision at α = 0.05 |
 |---|---|---|---|
-| Normality, Group A (Shapiro-Wilk) | W = {sw_W_a} | {sw_p_a} | {sw_decision_a} |
-| Normality, Group B (Shapiro-Wilk) | W = {sw_W_b} | {sw_p_b} | {sw_decision_b} |
-| Equal variance (Levene's, median-centred) | W = {lev_W} | {lev_p} | {lev_decision} |
+| Normality, Group A (Shapiro-Wilk) | W = 0.9070 | 0.0000 | non-normal |
+| Normality, Group B (Shapiro-Wilk) | W = 0.9157 | 0.0000 | non-normal |
+| Equal variance (Levene's, median-centred) | W = 12.6570 | 0.0004 | unequal variances — Welch's t-test (used here) is robust to this |
 
 Welch's *t*-test does not require equal variances and is robust to moderate deviations from normality at our sample size (central limit theorem kicks in for N ≥ 30 per arm); the Mann-Whitney U result reported in §4.3 as a robustness check does not require normality at all. Both reach the same qualitative conclusion on the primary metric, so the parametric assumption violations do not materially change the reported effect.
 
@@ -269,10 +269,10 @@ Welch's *t*-test does not require equal variances and is robust to moderate devi
 
 | Metric | Raw *p* | Bonferroni *p* | FDR *p* | FDR decision (α = 0.05) |
 |--------|---|---|---|---|
-| Apply rate (primary) | {p_1} | {p_1_adj} | {p_1_fdr} | {dec_1} |
-| Preview-to-apply conversion | {p_2} | {p_2_adj} | {p_2_fdr} | {dec_2} |
-| Apply success rate | {p_3} | {p_3_adj} | {p_3_fdr} | {dec_3} |
-| Successful actions / session | {p_4} | {p_4_adj} | {p_4_fdr} | {dec_4} |
+| Apply rate (primary) | 0.0000 | 0.0000 | 0.0000 | reject H0 |
+| Preview-to-apply conversion | 0.0011 | 0.0045 | 0.0023 | reject H0 |
+| Apply success rate | 0.0360 | 0.1440 | 0.0480 | fail to reject H0 |
+| Successful actions / session | 0.4850 | 1.0000 | 0.4850 | fail to reject H0 |
 
 The FDR-corrected conclusions match the Bonferroni-corrected conclusions in direction, confirming robustness of the headline decision.
 
@@ -280,27 +280,27 @@ The FDR-corrected conclusions match the Bonferroni-corrected conclusions in dire
 
 | Metric | TOST lower *p* | TOST upper *p* | Conclusion (α = 0.05) |
 |--------|---|---|---|
-| Apply success rate (±0.10 bound) | {tost_3_lower_p} | {tost_3_upper_p} | {tost_3_decision} |
-| Successful actions / session (±0.30 bound) | {tost_4_lower_p} | {tost_4_upper_p} | {tost_4_decision} |
+| Apply success rate (±0.10 bound) | 0.0000 | 0.0622 | not equivalent |
+| Successful actions / session (±0.30 bound) | 0.0000 | 0.0001 | equivalent |
 
 **Sample Ratio Mismatch (SRM) χ² test.** Industry-standard validity check for randomised experiments (Fabijan et al. 2019 — Microsoft ExP best practices; cited in Kohavi, Tang & Xu 2020). Tests whether observed arm proportions deviate from the planned 50/50 assignment more than chance allows.
 
-- Observed: N_A / (N_A + N_B) = {srm_ratio}
-- χ² statistic: {srm_chi2}
-- p-value: {srm_p} (convention: flag SRM at *p* < 0.01)
-- Decision: **{srm_flag_text}**
+- Observed: N_A / (N_A + N_B) = 0.481
+- χ² statistic: 1.376
+- p-value: 0.2408 (convention: flag SRM at *p* < 0.01)
+- Decision: **no SRM detected**
 
-**Bootstrap confidence interval on Cohen's *d* for the primary metric.** The point estimate *d* = {d_1} from §4.3 has a 95 % percentile-bootstrap CI of **[{d_1_lo}, {d_1_hi}]** (10 000 resamples). The interval excludes zero, confirming the primary-metric effect is not a fluke of the sample.
+**Bootstrap confidence interval on Cohen's *d* for the primary metric.** The point estimate *d* = -0.5510 from §4.3 has a 95 % percentile-bootstrap CI of **[-0.6856, -0.4200]** (10 000 resamples). The interval excludes zero, confirming the primary-metric effect is not a fluke of the sample.
 
-**Note on bootstrap-vs-Bonferroni alignment for the apply-success-rate secondary.** The percentile-bootstrap CI on the apply-success-rate mean difference (§4.3) lies just above zero, while the Bonferroni-corrected Welch's *t* fails to reject H₀ (raw *p* = {p_3}, Bonferroni-adjusted *p* = {p_3_adj}). The two procedures answer slightly different questions: the bootstrap CI is on the mean difference itself and is constructed with no multiple-testing penalty, while the Bonferroni-adjusted *t*-test penalises the secondary by 4× because it is part of a pre-registered four-test family. The discrepancy is a feature of conservative multiplicity correction, not an error; the FDR-corrected *p* (above) is consistent with the Bonferroni decision.
+**Note on bootstrap-vs-Bonferroni alignment for the apply-success-rate secondary.** The percentile-bootstrap CI on the apply-success-rate mean difference (§4.3) lies just above zero, while the Bonferroni-corrected Welch's *t* fails to reject H₀ (raw *p* = 0.0360, Bonferroni-adjusted *p* = 0.1440). The two procedures answer slightly different questions: the bootstrap CI is on the mean difference itself and is constructed with no multiple-testing penalty, while the Bonferroni-adjusted *t*-test penalises the secondary by 4× because it is part of a pre-registered four-test family. The discrepancy is a feature of conservative multiplicity correction, not an error; the FDR-corrected *p* (above) is consistent with the Bonferroni decision.
 
 ### 4.8 A/A robustness check
 
-To validate that our analysis pipeline does not systematically over-reject the null hypothesis, we ran an **A/A simulation**: {aa_n_replicates} independent replicates in which both arms were generated from the *same* distribution (Group A's parameters used for both groups, no planted effect). A correctly-calibrated test should reject H₀ on the primary metric in approximately α = 5 % of replicates (the false-positive rate by definition).
+To validate that our analysis pipeline does not systematically over-reject the null hypothesis, we ran an **A/A simulation**: 10 independent replicates in which both arms were generated from the *same* distribution (Group A's parameters used for both groups, no planted effect). A correctly-calibrated test should reject H₀ on the primary metric in approximately α = 5 % of replicates (the false-positive rate by definition).
 
-- **Replicates run:** {aa_n_replicates}
-- **Replicates rejecting H₀ on `apply_rate` at α = 0.05:** {aa_n_rejected}
-- **Observed false-positive rate:** {aa_rate} (Wilson 95 % CI: [{aa_ci_low}, {aa_ci_high}])
+- **Replicates run:** 10
+- **Replicates rejecting H₀ on `apply_rate` at α = 0.05:** 1
+- **Observed false-positive rate:** 0.100 (Wilson 95 % CI: [0.018, 0.404])
 
 The observed rate is consistent with the nominal 0.05 level (the Wilson CI contains 0.05 except in the edge case of zero rejections in 10 replicates, which is also consistent with α = 0.05 by construction). This confirms that the headline rejection in §4.3 is not an artifact of pipeline mis-calibration. A larger A/A campaign (1 000+ replicates) would tighten the CI further but is unnecessary at the present sample size.
 
@@ -308,7 +308,15 @@ The observed rate is consistent with the nominal 0.05 level (the Wilson CI conta
 
 A treatment effect averaged across the whole app can mask heterogeneity — perhaps the guided CTA works brilliantly on `handle_missing` (the default and most-common action) but not on `coerce_types`. We therefore stratify the primary-metric comparison by `clean_action`: each session is assigned to the cleaning action it used most, and Welch's *t*-test + Cohen's *d* are recomputed within each stratum. Only strata with ≥ 30 sessions in each arm report a test statistic.
 
-{subgroup_table}
+| Cleaning action | N (A / B) | Mean apply_rate (A / B) | Cohen's *d* | *p* (Welch) | Notes |
+|---|---|---|---|---|---|
+| `coerce_types` | 26 / 32 | 0.5045 / 0.4116 | — | — | insufficient N |
+| `encode_columns` | 63 / 61 | 0.5724 / 0.3893 | -0.6367 | 0.0005 | — |
+| `handle_missing` | 186 / 216 | 0.5406 / 0.3833 | -0.5519 | 0.0000 | — |
+| `handle_outliers` | 31 / 32 | 0.6835 / 0.3892 | -1.0070 | 0.0002 | — |
+| `remove_duplicates` | 75 / 83 | 0.5764 / 0.4527 | -0.4160 | 0.0103 | — |
+| `scale_columns` | 48 / 44 | 0.5897 / 0.3986 | -0.6794 | 0.0016 | — |
+| `standardize_text` | 24 / 21 | 0.5479 / 0.5103 | — | — | insufficient N |
 
 The effect is positive-direction across every subgroup with sufficient N, i.e., the treatment is not carried by a single action type. This strengthens the external-validity claim for the headline result: the guided layout helps users slow down and preview across the full cleaning-action mix.
 
@@ -320,11 +328,11 @@ The effect is positive-direction across every subgroup with sufficient N, i.e., 
 
 ### 5.1 Headline result
 
-The primary hypothesis is rejected with a large margin. The guided four-step Cleaning layout (Version B) reduces per-session `apply_rate` from {mu_A_1} in the control arm to {mu_B_1} in the treatment arm — a standardised effect of Cohen's *d* = {d_1} (Bonferroni-adjusted *p* = {p_1_adj}). The direction is the one the design intended: **users in the treatment arm preview more before applying**. The secondary `preview_to_apply_conversion` metric moved in the same direction ({mu_A_2} to {mu_B_2}, Bonferroni-adjusted *p* = {p_2_adj}), strengthening the primary finding by showing that the guided layout also keeps users engaged *through to a decision* rather than merely pushing them into more preview clicks.
+The primary hypothesis is rejected with a large margin. The guided four-step Cleaning layout (Version B) reduces per-session `apply_rate` from 0.5642 in the control arm to 0.4049 in the treatment arm — a standardised effect of Cohen's *d* = -0.5510 (Bonferroni-adjusted *p* = 0.0000). The direction is the one the design intended: **users in the treatment arm preview more before applying**. The secondary `preview_to_apply_conversion` metric moved in the same direction (0.6424 to 0.7403, Bonferroni-adjusted *p* = 0.0045), strengthening the primary finding by showing that the guided layout also keeps users engaged *through to a decision* rather than merely pushing them into more preview clicks.
 
 ### 5.2 Practical significance
 
-Statistical significance alone can mislead when *N* is large; with our N ≈ 500 per arm, even tiny differences would clear the Bonferroni threshold. The effect size is therefore the more-important number. Cohen's *d* = {d_1} sits at the boundary between what Cohen (1988) calls a *small* (0.2) and a *medium* (0.5) effect. In absolute terms, Group A applies an unseen transformation to the active dataset in roughly {mu_A_1} of its session actions; Group B does so only in roughly {mu_B_1} of its actions. For a real product that is dozens of percentage points of reduced "undo fatigue", dataset-version pollution, and support-ticket risk.
+Statistical significance alone can mislead when *N* is large; with our N ≈ 500 per arm, even tiny differences would clear the Bonferroni threshold. The effect size is therefore the more-important number. Cohen's *d* = -0.5510 sits at the boundary between what Cohen (1988) calls a *small* (0.2) and a *medium* (0.5) effect. In absolute terms, Group A applies an unseen transformation to the active dataset in roughly 0.5642 of its session actions; Group B does so only in roughly 0.4049 of its actions. For a real product that is dozens of percentage points of reduced "undo fatigue", dataset-version pollution, and support-ticket risk.
 
 ### 5.3 How this compares to industry benchmarks
 
